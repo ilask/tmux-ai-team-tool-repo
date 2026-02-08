@@ -4,7 +4,7 @@ A tiny CLI that makes **tmux-based “agent collaboration”** easier — especi
 
 It’s designed for workflows like:
 
-- Pane A: **one main agent** (Claude Code *or* Cursor CLI)
+- Pane A: **one main agent** (Claude Code, Cursor CLI, *or* Codex CLI)
 - Pane B/C/D...: multiple **Codex CLI** panes (implement / test / refactor / error-analysis)
 
 …and it reduces the annoying parts (session setup, pane naming, sending prompts, capturing output, quick handoffs, and optional push/relay).
@@ -43,7 +43,7 @@ You’ll get the `aiteam` command.
 
 ## Quickstart (WSL)
 
-### 0) Start a session with **one main agent** (Claude or Cursor)
+### 0) Start a session with **one main agent** (Claude, Cursor, or Codex)
 
 Claude Code as main:
 
@@ -51,13 +51,19 @@ Claude Code as main:
 aiteam start --session myproj --cwd /path/to/project --main claude --attach
 ```
 
-Cursor CLI as main (default command is `agent`; override if you use `cursor-cli`):
+Cursor CLI as main (command is `agent`):
 
 ```bash
 aiteam start --session myproj --cwd /path/to/project --main cursor --attach
 
 # or:
-aiteam start --session myproj --cwd /path/to/project --main custom --title cursor --command "cursor-cli" --attach
+aiteam start --session myproj --cwd /path/to/project --main custom --title cursor --command "agent" --attach
+```
+
+Codex as main:
+
+```bash
+aiteam start --session myproj --cwd /path/to/project --main codex --attach
 ```
 
 ### 1) From inside the main pane, spawn Codex panes (multiple OK)
@@ -101,7 +107,7 @@ aiteam codex --json                # print JSON (id/name/selector/session)
 aiteam handoff --session myproj --from claude --to codex:1 --lines 120 --header "Plan from main:"
 ```
 
-(Replace `--from claude` with your pane title, e.g. `--from cursor`, if you titled it `cursor`.)
+(Replace `--from claude` with your pane title, e.g. `--from cursor` or `--from codex`.)
 
 ### 3) Agent-to-agent push (optional)
 
@@ -135,7 +141,7 @@ aiteam kill --session myproj
 
 ## Commands
 
-- `start`  : create a tmux session and start a single main agent pane (Claude/Cursor)
+- `start`  : create a tmux session and start a single main agent pane (Claude/Cursor/Codex)
 - `spawn`  : create a tmux session, split panes, and start agent commands
 - `add`    : add a new agent pane to an existing session
 - `codex`  : start a new Codex instance pane (multiple supported; id+name)

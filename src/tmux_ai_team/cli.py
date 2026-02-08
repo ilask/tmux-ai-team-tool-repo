@@ -250,13 +250,14 @@ def cmd_start(args: argparse.Namespace) -> int:
     """Create a tmux session with a single *main* agent pane.
 
     This is a convenience for WSL/terminal workflows where you want:
-      - 1x main agent (Claude Code or Cursor CLI)
+      - 1x main agent (Claude Code, Cursor CLI, or Codex)
       - spawn Codex panes later via `aiteam codex ...`
 
     Examples:
       aiteam start --session myproj --main claude --attach
       aiteam start --session myproj --main cursor --attach
-      aiteam start --session myproj --main custom --command "cursor-cli" --title cursor --attach
+      aiteam start --session myproj --main codex --attach
+      aiteam start --session myproj --main custom --command "agent" --title cursor --attach
     """
     main = (getattr(args, "main", None) or "claude").strip().lower()
     cmd = (getattr(args, "command", None) or "").strip() or None
@@ -270,11 +271,16 @@ def cmd_start(args: argparse.Namespace) -> int:
             title = "claude"
     elif main == "cursor":
         # Cursor CLI's landing page shows the primary command as `agent`.
-        # Users can override this with --command if their install uses a different binary name.
+        # Users can still override this with --command.
         if cmd is None:
             cmd = "agent"
         if title is None:
             title = "cursor"
+    elif main == "codex":
+        if cmd is None:
+            cmd = "codex"
+        if title is None:
+            title = "codex"
     else:
         # custom
         if cmd is None:
@@ -915,12 +921,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--attach", action="store_true", help="Attach after spawning")
     sp.set_defaults(func=cmd_spawn)
 
-    sp = sub.add_parser("start", help="Create a tmux session with a single main agent pane (Claude or Cursor).")
+    sp = sub.add_parser("start", help="Create a tmux session with a single main agent pane (Claude/Cursor/Codex).")
     sp.add_argument("--session", default="ai-team", help="tmux session name (default: ai-team)")
     sp.add_argument("--cwd", default=None, help="Working directory for the session (default: current directory)")
-    sp.add_argument("--main", choices=["claude", "cursor", "custom"], default="claude", help="Which main agent to start (default: claude)")
+    sp.add_argument("--main", choices=["claude", "cursor", "codex", "custom"], default="claude", help="Which main agent to start (default: claude)")
     sp.add_argument("--command", default=None, help="Command to start the main agent (overrides the default for --main)")
-    sp.add_argument("--title", default=None, help="Pane title for the main agent (default: claude/cursor/main)")
+    sp.add_argument("--title", default=None, help="Pane title for the main agent (default: claude/cursor/codex/main)")
     sp.add_argument("--force", action="store_true", help="Replace session if it already exists")
     sp.add_argument("--attach", action="store_true", help="Attach after starting")
     sp.set_defaults(func=cmd_start)
