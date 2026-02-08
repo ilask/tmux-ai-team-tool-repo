@@ -972,6 +972,120 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_selftest(args: argparse.Namespace) -> int:
+    """Smoke-test send/capture/relay plumbing without real AI CLIs."""
+    session = (getattr(args, "session", None) or "").strip() or f"aiteam-selftest-{os.getpid()}"
+    cwd = getattr(args, "cwd", None) or os.getcwd()
+    keep = bool(getattr(args, "keep", False))
+    attach_after = bool(getattr(args, "attach", False))
+    verbose = bool(getattr(args, "verbose", False))
+
+    tmpdir = tempfile.mkdtemp(prefix="aiteam_selftest_")
+    script_path = os.path.join(tmpdir, "src_agent.py")
+
+    src_code = r'''import sys
+print("READY")
+sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    if line.lower() == "ping":
+        print("[PUSH]")
+        print("pong")
+        print("[/PUSH]")
+        sys.stdout.flush()
+    else:
+        print(f"ECHO:{line}")
+        sys.stdout.flush()
+'''
+
+    try:
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(src_code)
+
+        new_session(session, cwd=cwd, force=True)
+        split_window(session, cwd=cwd, vertical=True)
+        panes = list_panes(session)
+        if len(panes) < 2:
+            raise TmuxError("Selftest expected 2 panes but tmux returned fewer.")
+
+        src_pane = panes[0].pane_id
+        dst_pane = panes[1].pane_id
+        set_pane_title(src_pane, "src")
+        set_pane_title(dst_pane, "dst")
+
+        paste_text(src_pane, f"python3 -u {script_path}", enter=True)
+        paste_text(dst_pane, "cat", enter=True)
+        time.sleep(0.4)
+        paste_text(src_pane, "ping", enter=True)
+        time.sleep(0.4)
+
+        relay_args = argparse.Namespace(
+            session=session,
+            from_pane="src",
+            to_pane="dst",
+            lines=2000,
+            interval=0.2,
+            dedupe_ttl=60.0,
+            include_existing=True,
+            once=True,
+            max_sends=1,
+            no_enter=False,
+            header="(selftest)",
+            prefix=None,
+            dry_run=False,
+            verbose=verbose,
+            pattern=None,
+            group=None,
+            begin="[PUSH]",
+            end="[/PUSH]",
+            keep_markers=False,
+        )
+        rc = cmd_relay(relay_args)
+        if rc != 0:
+            raise TmuxError("Selftest relay failed.")
+
+        out = capture_pane(dst_pane, lines=200)
+        if "pong" in out:
+            print("SELFTEST PASS: relay delivered 'pong' to dst")
+            if attach_after:
+                tmux_attach(session)
+            return 0
+
+        _eprint("SELFTEST FAIL: did not observe 'pong' in dst")
+        _eprint("--- dst capture ---")
+        _eprint(out)
+        if attach_after:
+            tmux_attach(session)
+        return 1
+
+    except TmuxError as e:
+        _set_last_error(str(e))
+        _eprint(str(e))
+        if attach_after:
+            try:
+                tmux_attach(session)
+            except Exception:
+                pass
+        return 1
+    finally:
+        try:
+            if not keep:
+                kill_session(session)
+        except Exception:
+            pass
+        try:
+            for fn in os.listdir(tmpdir):
+                try:
+                    os.unlink(os.path.join(tmpdir, fn))
+                except Exception:
+                    pass
+            os.rmdir(tmpdir)
+        except Exception:
+            pass
+
+
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 
@@ -1032,13 +1146,42 @@ def cmd_relay(args: argparse.Namespace) -> int:
         # Dedup cache (hash -> last_seen_time)
         seen: dict[str, float] = {}
 
-        # Initial snapshot: seed cache with existing matches to avoid relaying old blocks.
+        include_existing = bool(getattr(args, "include_existing", False))
+
+        # Initial snapshot: either relay existing matches now, or seed dedupe cache.
         initial = capture_pane(src_id, lines=lines)
         initial_msgs = extract_messages(initial)
-        for msg in initial_msgs:
-            h = _sha(msg.strip())
-            if h:
+        if include_existing:
+            for msg in initial_msgs:
+                normalized = msg.strip("\n")
+                if not normalized.strip():
+                    continue
+                h = _sha(normalized.strip())
+                if not h or h in seen:
+                    continue
                 seen[h] = time.time()
+
+                out_msg = normalized
+                if args.prefix:
+                    out_msg = f"{args.prefix}\n{out_msg}"
+                if args.header:
+                    out_msg = f"{args.header}\n{out_msg}"
+
+                if args.dry_run:
+                    sys.stdout.write(out_msg + "\n")
+                else:
+                    paste_text(dst_id, out_msg, enter=(not args.no_enter))
+
+                sent_count += 1
+                if args.verbose:
+                    _eprint(f"Relayed 1 message ({len(out_msg)} chars): {args.from_pane} -> {args.to_pane}")
+                if args.once or (max_sends > 0 and sent_count >= max_sends):
+                    return 0
+        else:
+            for msg in initial_msgs:
+                h = _sha(msg.strip())
+                if h:
+                    seen[h] = time.time()
 
         while True:
             time.sleep(max(0.1, interval))
@@ -1423,6 +1566,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=600.0,
         help="Seconds to remember already-relayed messages (default: 600). 0 disables eviction.",
     )
+    sp.add_argument(
+        "--already-visible",
+        dest="include_existing",
+        action="store_true",
+        help="Relay matching blocks already visible when relay starts (default: off).",
+    )
     sp.add_argument("--once", action="store_true", help="Exit after the first successful relay")
     sp.add_argument(
         "--max-sends",
@@ -1474,6 +1623,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("doctor", help="Print environment diagnostics.")
     sp.set_defaults(func=cmd_doctor)
+
+    sp = sub.add_parser(
+        "selftest",
+        help="Smoke-test that aiteam can move messages between panes (no real AI agents required).",
+    )
+    sp.add_argument(
+        "--session",
+        default=None,
+        help="tmux session name to use (default: aiteam-selftest-<pid>; replaced if it exists)",
+    )
+    sp.add_argument("--cwd", default=None, help="Working directory for the selftest session")
+    sp.add_argument("--keep", action="store_true", help="Keep the tmux session running after the test")
+    sp.add_argument("--attach", action="store_true", help="Attach to the session after the test (pass or fail)")
+    sp.add_argument("--verbose", action="store_true", help="Verbose relay logging")
+    sp.set_defaults(func=cmd_selftest)
 
     return p
 

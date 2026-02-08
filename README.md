@@ -141,6 +141,9 @@ Run a relay that watches the main pane and pushes marker blocks to a Codex pane:
 
 ```bash
 aiteam relay --session myproj --from cursor --to codex:1 --caption "From main:" --verbose
+
+# Also relay blocks already visible when relay starts:
+aiteam relay --session myproj --from cursor --to codex:1 --already-visible --once
 ```
 
 Tell the source agent to output:
@@ -165,6 +168,14 @@ aiteam capture --session myproj --from codex:1 --lines 200
 aiteam kill --session myproj
 ```
 
+### 6) Run built-in plumbing selftest
+
+```bash
+aiteam selftest
+```
+
+It creates a temporary tmux session with two panes, relays a `[PUSH]pong[/PUSH]` block, and verifies delivery.
+
 ## Commands
 
 Every long option has a strict short alias based on its initial letter (no collisions allowed per subcommand). Check each command's `--help`.
@@ -181,6 +192,7 @@ Every long option has a strict short alias based on its initial letter (no colli
 - `list`   : list tmux sessions (filtered)
 - `kill`   : kill a tmux session
 - `doctor` : sanity checks (tmux presence, version, etc.)
+- `selftest`: smoke-test send/capture/relay plumbing in a temporary tmux session
 
 ## Auto error-analyzer Codex
 
