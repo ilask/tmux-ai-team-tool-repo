@@ -1044,12 +1044,32 @@ def cmd_capture(args: argparse.Namespace) -> int:
     try:
         session = _resolve_session(getattr(args, "session", None))
         pane_id = _find_pane(session, args.from_pane)
+        marker = (getattr(args, "marker", None) or "").strip()
+        wait_seconds = float(getattr(args, "wait_seconds", 0.0) or 0.0)
+        interval_seconds = float(getattr(args, "interval_seconds", 1.0) or 1.0)
+
         out = capture_pane(pane_id, lines=args.lines)
+        if marker:
+            deadline = time.time() + max(0.0, wait_seconds)
+            while marker not in out and time.time() < deadline:
+                time.sleep(max(0.1, interval_seconds))
+                out = capture_pane(pane_id, lines=args.lines)
+
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:
                 f.write(out)
         else:
             sys.stdout.write(out)
+
+        if marker and marker not in out:
+            if _is_codex_pane(session, pane_id):
+                _eprint(
+                    f"Capture incomplete: marker '{marker}' not found yet. "
+                    "Codex may still be processing; wait and retry."
+                )
+            else:
+                _eprint(f"Capture incomplete: marker '{marker}' not found yet.")
+            return 3
         return 0
     except TmuxError as e:
         _set_last_error(str(e))
@@ -1612,7 +1632,7 @@ def _auto_start_error_analyzer_codex(args: argparse.Namespace, *, error_text: st
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="aiteam",
-        description="A lightweight tmux helper for multi-agent CLI collaboration.",
+        description="A lightweight session helper for multi-agent CLI collaboration.",
         epilog=_help_status_epilog(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1621,7 +1641,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--error-codex",
         action="store_true",
-        help="Enable auto-starting an error-analyzer Codex pane when aiteam encounters a tmux/control error.",
+        help="Enable auto-starting an error-analyzer Codex pane when aiteam encounters a control error.",
     )
     p.add_argument(
         "--no-error-codex",
@@ -1639,11 +1659,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser = add_parser_with_auto_short
 
-    sp = sub.add_parser("spawn", help="Create a tmux session, split panes, and start agent commands.")
+    sp = sub.add_parser("spawn", help="Create a session, split panes, and start agent commands.")
     sp.add_argument(
         "--session",
         default=None,
-        help="tmux session name (default: auto from git repo name, preferring remote names; with -2/-3... on conflicts; fallback: ai-team)",
+        help="session name (default: auto from git repo name, preferring remote names; with -2/-3... on conflicts; fallback: ai-team)",
     )
     sp.add_argument("--cwd", default=None, help="Working directory for panes (default: current directory)")
     sp.add_argument(
@@ -1658,11 +1678,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--attach", action="store_true", help="Attach after spawning")
     sp.set_defaults(func=cmd_spawn)
 
-    sp = sub.add_parser("start", help="Create a tmux session with a single main agent pane (Claude/Cursor/Codex).")
+    sp = sub.add_parser("start", help="Create a session with a single main agent pane (Claude/Cursor/Codex).")
     sp.add_argument(
         "--session",
         default=None,
-        help="tmux session name (default: auto from git repo name, preferring remote names; with -2/-3... on conflicts; fallback: ai-team)",
+        help="session name (default: auto from git repo name, preferring remote names; with -2/-3... on conflicts; fallback: ai-team)",
     )
     sp.add_argument("--cwd", default=None, help="Working directory for the session (default: current directory)")
     sp.add_argument(
@@ -1679,9 +1699,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser(
         "add",
-        help="Add a new agent pane to an existing session (split from the current pane if inside tmux).",
+        help="Add a new agent pane to an existing session (split from the current pane when running inside a session client).",
     )
-    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
+    sp.add_argument("--session", default=None, help="session name (default: current session when running inside a session client)")
     sp.add_argument("--worker", dest="agent", default=None, help="Worker definition: name=command (alternative to --name/--exec)")
     sp.add_argument("--name", default=None, help="Agent name (pane title)")
     sp.add_argument("--exec", dest="command", default=None, help="Command to run in the new pane")
@@ -1692,7 +1712,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="vertical",
         help="Split layout (default: vertical)",
     )
-    sp.add_argument("--tiled", action="store_true", help="After adding, apply tmux tiled layout")
+    sp.add_argument("--tiled", action="store_true", help="After adding, apply tiled layout")
     sp.add_argument(
         "--base-pane",
         dest="split_from",
@@ -1719,7 +1739,7 @@ def build_parser() -> argparse.ArgumentParser:
         "codex",
         help="Start a new Codex instance in a new pane (multiple Codex panes supported).",
     )
-    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
+    sp.add_argument("--session", default=None, help="session name (default: current session when running inside a session client)")
     sp.add_argument(
         "--id",
         default=None,
@@ -1734,7 +1754,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="vertical",
         help="Split layout (default: vertical)",
     )
-    sp.add_argument("--tiled", action="store_true", help="After adding, apply tmux tiled layout")
+    sp.add_argument("--tiled", action="store_true", help="After adding, apply tiled layout")
     sp.add_argument(
         "--base-pane",
         dest="split_from",
@@ -1770,12 +1790,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_codex)
 
 
-    sp = sub.add_parser("attach", help="Attach to a tmux session.")
-    sp.add_argument("--session", required=True, help="tmux session name")
+    sp = sub.add_parser("attach", help="Attach to a session.")
+    sp.add_argument("--session", required=True, help="session name")
     sp.set_defaults(func=cmd_attach)
 
     sp = sub.add_parser("send", help="Paste text into a pane by agent name or pane index.")
-    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
+    sp.add_argument("--session", default=None, help="session name (default: current session when running inside a session client)")
     sp.add_argument("--to", required=True, help="Target pane selector (agent name or pane index)")
     g = sp.add_mutually_exclusive_group(required=True)
     g.add_argument("--body", dest="text", help="Text to send")
@@ -1785,14 +1805,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_send)
 
     sp = sub.add_parser("capture", help="Capture the last N lines from a pane.")
-    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
+    sp.add_argument("--session", default=None, help="session name (default: current session when running inside a session client)")
     sp.add_argument("--from", dest="from_pane", required=True, help="Source pane selector (agent name or pane index)")
     sp.add_argument("--lines", type=int, default=200, help="Number of lines from the bottom (default: 200)")
+    sp.add_argument("--marker", default=None, help="Optional completion marker to wait for in captured text")
+    sp.add_argument("--wait-seconds", type=float, default=0.0, help="How long to wait for --marker before returning incomplete (default: 0)")
+    sp.add_argument("--interval-seconds", type=float, default=1.0, help="Polling interval while waiting for --marker (default: 1.0)")
     sp.add_argument("--output", help="Write captured text to a file instead of stdout")
     sp.set_defaults(func=cmd_capture)
 
     sp = sub.add_parser("handoff", help="Capture from one pane and paste into another.")
-    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
+    sp.add_argument("--session", default=None, help="session name (default: current session when running inside a session client)")
     sp.add_argument("--from", dest="from_pane", required=True, help="Source pane selector (agent name or pane index)")
     sp.add_argument("--to", dest="to_pane", required=True, help="Destination pane selector (agent name or pane index)")
     sp.add_argument("--lines", type=int, default=120, help="Number of lines to capture (default: 120)")
@@ -1804,7 +1827,7 @@ def build_parser() -> argparse.ArgumentParser:
         "relay",
         help="Watch a pane for marker blocks or regex matches and push them into another pane (agent-to-agent push).",
     )
-    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
+    sp.add_argument("--session", default=None, help="session name (default: current session when running inside a session client)")
     sp.add_argument("--from", dest="from_pane", required=True, help="Source pane selector (agent name or pane index)")
     sp.add_argument("--to", dest="to_pane", required=True, help="Destination pane selector (agent name or pane index)")
     sp.add_argument("--lines", type=int, default=2000, help="Capture window size (default: 2000 lines)")
@@ -1863,12 +1886,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp.set_defaults(func=cmd_relay)
 
-    sp = sub.add_parser("list", help="List tmux sessions (optionally filtered).")
+    sp = sub.add_parser("list", help="List sessions (optionally filtered).")
     sp.add_argument("--filter", default=None, help="Only show sessions containing this substring")
     sp.set_defaults(func=cmd_list)
 
-    sp = sub.add_parser("kill", help="Kill a tmux session.")
-    sp.add_argument("--session", required=True, help="tmux session name")
+    sp = sub.add_parser("kill", help="Kill a session.")
+    sp.add_argument("--session", required=True, help="session name")
     sp.set_defaults(func=cmd_kill)
 
     sp = sub.add_parser("doctor", help="Print environment diagnostics.")
@@ -1881,10 +1904,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument(
         "--session",
         default=None,
-        help="tmux session name to use (default: aiteam-selftest-<pid>; replaced if it exists)",
+        help="session name to use (default: aiteam-selftest-<pid>; replaced if it exists)",
     )
     sp.add_argument("--cwd", default=None, help="Working directory for the selftest session")
-    sp.add_argument("--keep", action="store_true", help="Keep the tmux session running after the test")
+    sp.add_argument("--keep", action="store_true", help="Keep the session running after the test")
     sp.add_argument("--attach", action="store_true", help="Attach to the session after the test (pass or fail)")
     sp.add_argument("--verbose", action="store_true", help="Verbose relay logging")
     sp.set_defaults(func=cmd_selftest)

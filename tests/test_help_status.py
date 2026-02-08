@@ -34,3 +34,10 @@ def test_help_status_epilog_includes_agent_context(monkeypatch) -> None:
     assert "session=demo" in epilog
     assert "pane_title=codex#3:review" in epilog
     assert "readme: /tmp/README.md" in epilog
+
+
+def test_root_help_text_avoids_tmux_wording() -> None:
+    parser = cli.build_parser()
+    help_text = parser.format_help().lower()
+    assert "tmux helper" not in help_text
+    assert "tmux session" not in help_text

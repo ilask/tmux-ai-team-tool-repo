@@ -32,6 +32,23 @@ def _aiteam_env() -> dict[str, str]:
     return env
 
 
+def _write_tmux_shim(*, shim_path: pathlib.Path) -> None:
+    shim_path.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+
+log_file="${AITEAM_TMUX_SHIM_LOG:?missing AITEAM_TMUX_SHIM_LOG}"
+real_tmux="${AITEAM_REAL_TMUX:?missing AITEAM_REAL_TMUX}"
+ppid="${PPID}"
+parent_cmd="$(tr '\\0' ' ' <"/proc/${ppid}/cmdline" 2>/dev/null || true)"
+printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "$(date +%s.%N)" "$$" "$ppid" "$parent_cmd" "$*" >> "$log_file"
+exec "$real_tmux" "$@"
+""",
+        encoding="utf-8",
+    )
+    shim_path.chmod(0o755)
+
+
 @pytest.fixture
 def run_aiteam() -> Callable[..., subprocess.CompletedProcess[str]]:
     def _run(args: list[str], *, timeout: int = 30, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -53,6 +70,56 @@ def run_aiteam() -> Callable[..., subprocess.CompletedProcess[str]]:
         return cp
 
     return _run
+
+
+@pytest.fixture
+def tmux_invocation_guard(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
+    """Wrap tmux and fail if non-controller processes invoke mutating tmux commands."""
+    real_tmux = shutil.which("tmux")
+    if real_tmux is None:
+        yield None
+        return
+
+    shim_dir = tmp_path / "tmux-shim-bin"
+    shim_dir.mkdir(parents=True, exist_ok=True)
+    shim_path = shim_dir / "tmux"
+    _write_tmux_shim(shim_path=shim_path)
+
+    log_path = tmp_path / "tmux-calls.log"
+    monkeypatch.setenv("AITEAM_REAL_TMUX", real_tmux)
+    monkeypatch.setenv("AITEAM_TMUX_SHIM_LOG", str(log_path))
+    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    yield log_path
+
+    if not log_path.exists():
+        return
+    lines = [line for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if not lines:
+        return
+
+    allow_parent_tokens = ("tmux_ai_team", "pytest", "py.test")
+    # Codex may probe terminal metadata via read-only tmux calls before rendering.
+    # We allow only these exact probes from non-controller callers.
+    allow_non_controller_tmux_args = {
+        "display-message -p #{client_termtype}",
+        "display-message -p #{client_termname}",
+    }
+    unexpected: list[str] = []
+    for line in lines:
+        parts = line.split("\t", 4)
+        parent_cmd = parts[3] if len(parts) >= 4 else ""
+        tmux_args = (parts[4] if len(parts) >= 5 else "").strip()
+        is_controller = any(token in parent_cmd for token in allow_parent_tokens)
+        is_allowed_probe = tmux_args in allow_non_controller_tmux_args
+        if not is_controller and not is_allowed_probe:
+            unexpected.append(line)
+
+    if unexpected:
+        raise AssertionError(
+            "Detected tmux invocations from unexpected caller process(es):\n"
+            + "\n".join(unexpected)
+        )
 
 
 @pytest.fixture
