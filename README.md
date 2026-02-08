@@ -218,6 +218,13 @@ Every long option has a strict short alias based on its initial letter (no colli
 - `doctor` : sanity checks (tmux presence, version, etc.)
 - `selftest`: smoke-test send/capture/relay plumbing in a temporary tmux session
 
+`aiteam -h` always shows:
+- basic quick commands for the main agent
+- absolute path to `README.md`
+
+When run inside a tmux pane titled as an aiteam agent (`codex#...`, `codex`, `claude`, `agent`, `cursor`),
+help output also shows a short status line indicating the detected agent context.
+
 ## Auto error-analyzer Codex
 
 If an `aiteam` command fails with a tmux/control error (exit code 1) **and you're inside tmux**,

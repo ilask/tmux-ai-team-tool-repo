@@ -80,6 +80,83 @@ def _parse_codex_title(title: str) -> Optional[Tuple[str, str]]:
     return cid, name
 
 
+def _agent_kind_from_pane_title(title: str) -> Optional[str]:
+    t = (title or "").strip()
+    if not t:
+        return None
+    if _parse_codex_title(t):
+        return "codex"
+
+    low = t.lower()
+    if low == "codex" or low.startswith("codex "):
+        return "codex"
+    if low.startswith("claude"):
+        return "claude"
+    if low == "agent" or low.startswith("agent"):
+        return "agent"
+    if low.startswith("cursor"):
+        return "cursor"
+    return None
+
+
+def _detect_help_agent_context() -> Optional[Tuple[str, str, str]]:
+    """Detect current aiteam agent context from tmux pane metadata."""
+    try:
+        session = current_session_name()
+        pane_id = current_pane_id()
+        panes = list_panes(session)
+    except Exception:
+        return None
+
+    pane_title = ""
+    for pane in panes:
+        if pane.pane_id == pane_id:
+            pane_title = pane.pane_title
+            break
+
+    kind = _agent_kind_from_pane_title(pane_title)
+    if not kind:
+        return None
+    return kind, session, pane_title
+
+
+def _readme_abs_path() -> str:
+    """Return best-effort absolute path to README.md."""
+    here = os.path.abspath(__file__)
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(here), "..", "..", "README.md")),
+        os.path.abspath(os.path.join(os.getcwd(), "README.md")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return candidates[0]
+
+
+def _help_status_epilog() -> str:
+    """Return help epilog with basic commands, README path, and optional agent status."""
+    lines = [
+        "main-agent quick commands:",
+        "  aiteam codex --name <name>",
+        "  aiteam add --worker <name>=<command>",
+        "  aiteam send --to codex:<id> --body \"<task>\"",
+        "  aiteam capture --from codex:<id> --lines 120",
+        f"readme: {_readme_abs_path()}",
+    ]
+
+    ctx = _detect_help_agent_context()
+    if ctx:
+        kind, session, pane_title = ctx
+        pane_label = pane_title or "(no-title)"
+        lines.extend(
+            [
+                f"status: running from aiteam agent pane (kind={kind}, session={session}, pane_title={pane_label}).",
+                "hint: spawn peers with `aiteam codex --name <name>` or `aiteam add --worker name=command`.",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def _list_codex_panes(session: str):
     panes = list_panes(session)
     out = []
@@ -1370,7 +1447,12 @@ def _auto_start_error_analyzer_codex(args: argparse.Namespace, *, error_text: st
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="aiteam", description="A lightweight tmux helper for multi-agent CLI collaboration.")
+    p = argparse.ArgumentParser(
+        prog="aiteam",
+        description="A lightweight tmux helper for multi-agent CLI collaboration.",
+        epilog=_help_status_epilog(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     _enable_auto_short_options(p)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument(
