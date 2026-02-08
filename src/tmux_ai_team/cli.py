@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import hashlib
 import os
 import re
@@ -243,6 +244,66 @@ def cmd_spawn(args: argparse.Namespace) -> int:
 
 
 
+
+
+def cmd_start(args: argparse.Namespace) -> int:
+    """Create a tmux session with a single *main* agent pane.
+
+    This is a convenience for WSL/terminal workflows where you want:
+      - 1x main agent (Claude Code or Cursor CLI)
+      - spawn Codex panes later via `aiteam codex ...`
+
+    Examples:
+      aiteam start --session myproj --main claude --attach
+      aiteam start --session myproj --main cursor --attach
+      aiteam start --session myproj --main custom --command "cursor-cli" --title cursor --attach
+    """
+    main = (getattr(args, "main", None) or "claude").strip().lower()
+    cmd = (getattr(args, "command", None) or "").strip() or None
+    title = (getattr(args, "title", None) or "").strip() or None
+
+    # Defaults
+    if main == "claude":
+        if cmd is None:
+            cmd = "claude"
+        if title is None:
+            title = "claude"
+    elif main == "cursor":
+        # Cursor CLI's landing page shows the primary command as `agent`.
+        # Users can override this with --command if their install uses a different binary name.
+        if cmd is None:
+            cmd = "agent"
+        if title is None:
+            title = "cursor"
+    else:
+        # custom
+        if cmd is None:
+            raise TmuxError("For --main custom, you must provide --command.")
+        if title is None:
+            title = "main"
+
+    cwd = args.cwd or os.getcwd()
+
+    try:
+        _eprint(f"tmux: {tmux_version()}")
+        new_session(args.session, cwd=cwd, force=args.force)
+
+        panes = list_panes(args.session)
+        if not panes:
+            raise TmuxError(f"No panes found in session '{args.session}' after creating it.")
+        pane_id = panes[0].pane_id
+        set_pane_title(pane_id, title)
+        paste_text(pane_id, cmd, enter=True)
+
+        if args.attach:
+            tmux_attach(args.session)
+        return 0
+    except TmuxError as e:
+        _set_last_error(str(e))
+        _eprint(str(e))
+        return 1
+
+
 def _resolve_session(session: Optional[str]) -> str:
     """Resolve the tmux session name.
 
@@ -415,8 +476,25 @@ def cmd_codex(args: argparse.Namespace) -> int:
         setattr(add_args, "if_exists", "error")
 
         rc = cmd_add(add_args)
-        if rc == 0 and not getattr(args, "quiet", False):
-            _eprint(f"Started Codex: id={cid} name={label} (target selector: codex:{cid})")
+        if rc == 0:
+            selector = f"codex:{cid}"
+            # Human-friendly notice on stderr (unless --quiet)
+            if not getattr(args, "quiet", False):
+                _eprint(f"Started Codex: id={cid} name={label} (target selector: {selector})")
+
+            # Machine-friendly return value on stdout (enabled by default)
+            print_json = bool(getattr(args, "json", False))
+            print_selector = bool(getattr(args, "print_selector", True))
+            if print_json:
+                print(json.dumps({
+                    "id": cid,
+                    "name": label,
+                    "selector": selector,
+                    "pane_title": title,
+                    "session": session,
+                }, ensure_ascii=False))
+            elif print_selector:
+                print(selector)
         return rc
 
     except TmuxError as e:
@@ -837,6 +915,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--attach", action="store_true", help="Attach after spawning")
     sp.set_defaults(func=cmd_spawn)
 
+    sp = sub.add_parser("start", help="Create a tmux session with a single main agent pane (Claude or Cursor).")
+    sp.add_argument("--session", default="ai-team", help="tmux session name (default: ai-team)")
+    sp.add_argument("--cwd", default=None, help="Working directory for the session (default: current directory)")
+    sp.add_argument("--main", choices=["claude", "cursor", "custom"], default="claude", help="Which main agent to start (default: claude)")
+    sp.add_argument("--command", default=None, help="Command to start the main agent (overrides the default for --main)")
+    sp.add_argument("--title", default=None, help="Pane title for the main agent (default: claude/cursor/main)")
+    sp.add_argument("--force", action="store_true", help="Replace session if it already exists")
+    sp.add_argument("--attach", action="store_true", help="Attach after starting")
+    sp.set_defaults(func=cmd_start)
+
     sp = sub.add_parser(
         "add",
         help="Add a new agent pane to an existing session (split from the current pane if inside tmux).",
@@ -913,6 +1001,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where to leave focus after adding: stay or new (default: stay)",
     )
     sp.add_argument("--quiet", action="store_true", help="Reduce stderr output")
+    sp.add_argument(
+        "--no-return",
+        dest="print_selector",
+        action="store_false",
+        default=True,
+        help="Do not print the Codex selector to stdout on success (default: prints selector).",
+    )
+    sp.add_argument(
+        "--json",
+        action="store_true",
+        help="Print a JSON object (id/name/selector/session) to stdout on success.",
+    )
     sp.set_defaults(func=cmd_codex)
 
 
