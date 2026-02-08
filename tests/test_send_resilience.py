@@ -63,6 +63,30 @@ def test_cmd_send_multiline_to_codex_confirms_with_extra_enter(monkeypatch) -> N
     assert keys == [("%9", ["C-m"])]
 
 
+def test_cmd_send_without_session_uses_current_tmux_session(monkeypatch) -> None:
+    # Purpose: when --session is omitted, send should auto-resolve the current tmux session.
+    args = SimpleNamespace(
+        session=None,
+        to="codex:1",
+        text=None,
+        file=None,
+        stdin=False,
+        no_enter=False,
+    )
+    seen: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(cli, "_resolve_session", lambda _s: "auto-session")
+    monkeypatch.setattr(cli, "_find_pane", lambda s, to: seen.append((s, to)) or "%9")
+    monkeypatch.setattr(cli, "_read_text_input", lambda _a: "hello")
+    monkeypatch.setattr(cli, "_is_codex_pane", lambda _s, _p: False)
+    monkeypatch.setattr(cli, "paste_text", lambda _pane, _text, enter=True: None)
+
+    rc = cli.cmd_send(args)
+
+    assert rc == 0
+    assert seen == [("auto-session", "codex:1")]
+
+
 def test_cmd_send_single_line_to_codex_does_not_send_extra_enter(monkeypatch) -> None:
     # Purpose: single-line messages should keep current behavior (one submit only).
     args = SimpleNamespace(

@@ -110,6 +110,8 @@ You can target a specific Codex later via:
 
 `codex:<id>`
 
+For Codex panes, label-only selectors also work when unique (example: `main`, `tests`, `analyst1`).
+
 Example:
 
 ```bash

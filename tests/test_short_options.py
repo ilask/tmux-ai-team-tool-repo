@@ -78,6 +78,19 @@ def test_send_accepts_short_options_in_mutually_exclusive_group() -> None:
     assert args.text == "hello"
 
 
+def test_send_session_is_optional() -> None:
+    parser = cli.build_parser()
+    send = _subparser(parser, "send")
+
+    short_to = _short_opt_for_dest(send, "to")
+    short_text = _short_opt_for_dest(send, "text")
+
+    args = parser.parse_args(["send", short_to, "p", short_text, "hello"])
+    assert args.session is None
+    assert args.to == "p"
+    assert args.text == "hello"
+
+
 def test_collision_raises_error_immediately() -> None:
     parser = argparse.ArgumentParser(prog="x")
     cli._enable_auto_short_options(parser)

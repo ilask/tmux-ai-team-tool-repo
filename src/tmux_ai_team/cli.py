@@ -194,6 +194,43 @@ def _next_prefixed_codex_id(session: str, prefix: str) -> str:
     return f"{prefix}{max_n + 1}"
 
 
+def _codex_spawn_lock_path(session: str) -> str:
+    safe_session = re.sub(r"[^A-Za-z0-9_.-]+", "_", (session or "unknown")).strip("._")
+    if not safe_session:
+        safe_session = "unknown"
+    return os.path.join(tempfile.gettempdir(), f"aiteam-codex-spawn-{safe_session}.lock")
+
+
+@contextmanager
+def _acquire_codex_spawn_lock(session: str):
+    """Cross-process lock for Codex id allocation + pane creation."""
+    fd = os.open(_codex_spawn_lock_path(session), os.O_CREAT | os.O_RDWR, 0o600)
+    lock_mod = None
+    locked = False
+    try:
+        try:
+            import fcntl as _fcntl
+            lock_mod = _fcntl
+        except Exception:
+            # Best-effort on platforms without fcntl.
+            yield
+            return
+
+        lock_mod.flock(fd, lock_mod.LOCK_EX)
+        locked = True
+        yield
+    finally:
+        if locked and lock_mod is not None:
+            try:
+                lock_mod.flock(fd, lock_mod.LOCK_UN)
+            except Exception:
+                pass
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+
+
 def _sanitize_session_name(raw: str) -> str:
     """Sanitize a string into a tmux session-name-friendly token."""
     s = (raw or "").strip()
@@ -540,6 +577,20 @@ def _find_pane(session: str, selector: str) -> str:
         if p.pane_title == selector:
             return p.pane_id
 
+    # Codex label selector: e.g. "analyst1" matches pane title "codex#2:analyst1".
+    codex_by_name = []
+    for cid, cname, pane in _list_codex_panes(session):
+        if cname and cname == selector:
+            codex_by_name.append((cid, pane))
+    if len(codex_by_name) == 1:
+        return codex_by_name[0][1].pane_id
+    if len(codex_by_name) > 1:
+        available = ", ".join([f"codex:{cid}" for cid, _p in codex_by_name])
+        raise TmuxError(
+            f"Ambiguous Codex label '{selector}' in session {session}. "
+            f"Use an explicit id selector ({available})."
+        )
+
     # Back-compat / convenience: selector 'codex' can target a single codex instance.
     if selector == "codex":
         codexes = _list_codex_panes(session)
@@ -557,6 +608,20 @@ def _find_pane(session: str, selector: str) -> str:
     for p in panes:
         if p.pane_title.lower() == low:
             return p.pane_id
+
+    # Case-insensitive Codex label selector.
+    codex_by_name_ci = []
+    for cid, cname, pane in _list_codex_panes(session):
+        if cname and cname.lower() == low:
+            codex_by_name_ci.append((cid, pane))
+    if len(codex_by_name_ci) == 1:
+        return codex_by_name_ci[0][1].pane_id
+    if len(codex_by_name_ci) > 1:
+        available = ", ".join([f"codex:{cid}" for cid, _p in codex_by_name_ci])
+        raise TmuxError(
+            f"Ambiguous Codex label '{selector}' in session {session}. "
+            f"Use an explicit id selector ({available})."
+        )
 
     available = ", ".join([f"{p.pane_index}:{p.pane_title or '(no-title)'}" for p in panes])
     raise TmuxError(f"Pane not found: {selector}. Available: {available}")
@@ -875,61 +940,61 @@ def cmd_codex(args: argparse.Namespace) -> int:
     """
     try:
         session = _resolve_session(getattr(args, "session", None))
+        with _acquire_codex_spawn_lock(session):
+            # Determine id
+            requested_id = (getattr(args, "id", None) or "").strip() or None
+            if requested_id is None:
+                cid = _next_codex_numeric_id(session)
+            else:
+                cid = requested_id
 
-        # Determine id
-        requested_id = (getattr(args, "id", None) or "").strip() or None
-        if requested_id is None:
-            cid = _next_codex_numeric_id(session)
-        else:
-            cid = requested_id
+            # Determine name label
+            label = (getattr(args, "name", None) or "").strip() or "codex"
 
-        # Determine name label
-        label = (getattr(args, "name", None) or "").strip() or "codex"
+            # Ensure id uniqueness within the session
+            existing_ids = {existing_id for existing_id, _cname, _p in _list_codex_panes(session)}
+            if cid in existing_ids:
+                mode = getattr(args, "if_exists", "error")
+                if mode == "skip":
+                    if not getattr(args, "quiet", False):
+                        _eprint(f"Codex id '{cid}' already exists (skip). Use codex:{cid} to target it.")
+                    return 0
+                raise TmuxError(
+                    f"Codex id '{cid}' already exists in session '{session}'. "
+                    f"Pick another --id or omit --id to auto-allocate."
+                )
 
-        # Ensure id uniqueness within the session
-        existing_ids = {existing_id for existing_id, _cname, _p in _list_codex_panes(session)}
-        if cid in existing_ids:
-            mode = getattr(args, "if_exists", "error")
-            if mode == "skip":
+            title = f"codex#{cid}:{label}"
+
+            # Reuse cmd_add implementation by mapping args -> add args
+            add_args = argparse.Namespace(**vars(args))
+            setattr(add_args, "agent", None)
+            setattr(add_args, "name", title)
+            setattr(add_args, "command", getattr(args, "command", _DEFAULT_CODEX_COMMAND))
+            # For Codex instances, pane-title collisions should be treated as errors.
+            setattr(add_args, "if_exists", "error")
+
+            rc = cmd_add(add_args)
+            if rc == 0:
+                selector = f"codex:{cid}"
+                # Human-friendly notice on stderr (unless --quiet)
                 if not getattr(args, "quiet", False):
-                    _eprint(f"Codex id '{cid}' already exists (skip). Use codex:{cid} to target it.")
-                return 0
-            raise TmuxError(
-                f"Codex id '{cid}' already exists in session '{session}'. "
-                f"Pick another --id or omit --id to auto-allocate."
-            )
+                    _eprint(f"Started Codex: id={cid} name={label} (target selector: {selector})")
 
-        title = f"codex#{cid}:{label}"
-
-        # Reuse cmd_add implementation by mapping args -> add args
-        add_args = argparse.Namespace(**vars(args))
-        setattr(add_args, "agent", None)
-        setattr(add_args, "name", title)
-        setattr(add_args, "command", getattr(args, "command", _DEFAULT_CODEX_COMMAND))
-        # For Codex instances, pane-title collisions should be treated as errors.
-        setattr(add_args, "if_exists", "error")
-
-        rc = cmd_add(add_args)
-        if rc == 0:
-            selector = f"codex:{cid}"
-            # Human-friendly notice on stderr (unless --quiet)
-            if not getattr(args, "quiet", False):
-                _eprint(f"Started Codex: id={cid} name={label} (target selector: {selector})")
-
-            # Machine-friendly return value on stdout (enabled by default)
-            print_json = bool(getattr(args, "json", False))
-            print_selector = bool(getattr(args, "print_selector", True))
-            if print_json:
-                print(json.dumps({
-                    "id": cid,
-                    "name": label,
-                    "selector": selector,
-                    "pane_title": title,
-                    "session": session,
-                }, ensure_ascii=False))
-            elif print_selector:
-                print(selector)
-        return rc
+                # Machine-friendly return value on stdout (enabled by default)
+                print_json = bool(getattr(args, "json", False))
+                print_selector = bool(getattr(args, "print_selector", True))
+                if print_json:
+                    print(json.dumps({
+                        "id": cid,
+                        "name": label,
+                        "selector": selector,
+                        "pane_title": title,
+                        "session": session,
+                    }, ensure_ascii=False))
+                elif print_selector:
+                    print(selector)
+            return rc
 
     except TmuxError as e:
         _set_last_error(str(e))
@@ -959,12 +1024,13 @@ def _read_text_input(args: argparse.Namespace) -> str:
 
 def cmd_send(args: argparse.Namespace) -> int:
     try:
-        target_pane = _find_pane(args.session, args.to)
+        session = _resolve_session(getattr(args, "session", None))
+        target_pane = _find_pane(session, args.to)
         text = _read_text_input(args)
         paste_text(target_pane, text, enter=(not args.no_enter))
         # Codex sometimes keeps multiline input in compose mode after the first Enter.
         # For Codex panes, send one extra Enter as a safe confirmation.
-        if (not args.no_enter) and ("\n" in text) and _is_codex_pane(args.session, target_pane):
+        if (not args.no_enter) and ("\n" in text) and _is_codex_pane(session, target_pane):
             time.sleep(0.08)
             send_keys(target_pane, ["C-m"])
         return 0
@@ -976,7 +1042,8 @@ def cmd_send(args: argparse.Namespace) -> int:
 
 def cmd_capture(args: argparse.Namespace) -> int:
     try:
-        pane_id = _find_pane(args.session, args.from_pane)
+        session = _resolve_session(getattr(args, "session", None))
+        pane_id = _find_pane(session, args.from_pane)
         out = capture_pane(pane_id, lines=args.lines)
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:
@@ -992,8 +1059,9 @@ def cmd_capture(args: argparse.Namespace) -> int:
 
 def cmd_handoff(args: argparse.Namespace) -> int:
     try:
-        from_id = _find_pane(args.session, args.from_pane)
-        to_id = _find_pane(args.session, args.to_pane)
+        session = _resolve_session(getattr(args, "session", None))
+        from_id = _find_pane(session, args.from_pane)
+        to_id = _find_pane(session, args.to_pane)
         captured = capture_pane(from_id, lines=args.lines).rstrip()
 
         header = args.header
@@ -1181,8 +1249,9 @@ def cmd_relay(args: argparse.Namespace) -> int:
     output a specific marker block or pattern.
     """
     try:
-        src_id = _find_pane(args.session, args.from_pane)
-        dst_id = _find_pane(args.session, args.to_pane)
+        session = _resolve_session(getattr(args, "session", None))
+        src_id = _find_pane(session, args.from_pane)
+        dst_id = _find_pane(session, args.to_pane)
 
         lines = int(args.lines)
         interval = float(args.interval)
@@ -1321,6 +1390,28 @@ def _is_codex_pane(session: str, pane_id: str) -> bool:
         if pane.pane_id == pane_id:
             return True
     return False
+
+
+def _wait_for_codex_boot(pane_id: str, *, timeout_sec: float = 10.0) -> None:
+    """Best-effort wait until the pane appears to have started Codex."""
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        try:
+            out = capture_pane(pane_id, lines=120)
+        except Exception:
+            out = ""
+        low = out.lower()
+        if "openai codex" in low or "codex (v" in low:
+            return
+        time.sleep(0.2)
+
+
+def _submit_codex_prompt(pane_id: str, text: str) -> None:
+    """Send a prompt to a Codex pane and confirm multiline submission."""
+    paste_text(pane_id, text, enter=True)
+    if "\n" in text:
+        time.sleep(0.08)
+        send_keys(pane_id, ["C-m"])
 
 
 def _error_codex_already_running(session: str) -> bool:
@@ -1497,14 +1588,14 @@ def _auto_start_error_analyzer_codex(args: argparse.Namespace, *, error_text: st
 
             # Start Codex and feed it the prompt.
             paste_text(new_pane_id, _DEFAULT_CODEX_COMMAND, enter=True)
-            time.sleep(0.6)
+            _wait_for_codex_boot(new_pane_id)
 
             prompt = _build_error_analyzer_prompt(
                 error_text=error_text,
                 argv=["aiteam", *getattr(args, "_argv", [])],
                 session=session,
             )
-            paste_text(new_pane_id, prompt, enter=True)
+            _submit_codex_prompt(new_pane_id, prompt)
 
             # Make things visible when panes grow.
             select_layout_tiled(session)
@@ -1684,7 +1775,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_attach)
 
     sp = sub.add_parser("send", help="Paste text into a pane by agent name or pane index.")
-    sp.add_argument("--session", required=True, help="tmux session name")
+    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
     sp.add_argument("--to", required=True, help="Target pane selector (agent name or pane index)")
     g = sp.add_mutually_exclusive_group(required=True)
     g.add_argument("--body", dest="text", help="Text to send")
@@ -1694,14 +1785,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_send)
 
     sp = sub.add_parser("capture", help="Capture the last N lines from a pane.")
-    sp.add_argument("--session", required=True, help="tmux session name")
+    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
     sp.add_argument("--from", dest="from_pane", required=True, help="Source pane selector (agent name or pane index)")
     sp.add_argument("--lines", type=int, default=200, help="Number of lines from the bottom (default: 200)")
     sp.add_argument("--output", help="Write captured text to a file instead of stdout")
     sp.set_defaults(func=cmd_capture)
 
     sp = sub.add_parser("handoff", help="Capture from one pane and paste into another.")
-    sp.add_argument("--session", required=True, help="tmux session name")
+    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
     sp.add_argument("--from", dest="from_pane", required=True, help="Source pane selector (agent name or pane index)")
     sp.add_argument("--to", dest="to_pane", required=True, help="Destination pane selector (agent name or pane index)")
     sp.add_argument("--lines", type=int, default=120, help="Number of lines to capture (default: 120)")
@@ -1713,7 +1804,7 @@ def build_parser() -> argparse.ArgumentParser:
         "relay",
         help="Watch a pane for marker blocks or regex matches and push them into another pane (agent-to-agent push).",
     )
-    sp.add_argument("--session", required=True, help="tmux session name")
+    sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
     sp.add_argument("--from", dest="from_pane", required=True, help="Source pane selector (agent name or pane index)")
     sp.add_argument("--to", dest="to_pane", required=True, help="Destination pane selector (agent name or pane index)")
     sp.add_argument("--lines", type=int, default=2000, help="Capture window size (default: 2000 lines)")
