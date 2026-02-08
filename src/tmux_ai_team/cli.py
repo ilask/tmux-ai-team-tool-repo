@@ -234,6 +234,90 @@ def _resolve_new_session_name(*, requested: Optional[str], cwd: str) -> Tuple[st
     return _next_available_session_name(base), True
 
 
+def _strict_short_flag(long_flag: str) -> str:
+    """Return strict short flag derived from the first alnum in the long flag."""
+    name = (long_flag or "").strip().lstrip("-")
+    for ch in name:
+        if ch.isalnum():
+            return f"-{ch.lower()}"
+    raise ValueError(f"Unable to derive a short option from '{long_flag}'")
+
+
+def _pick_short_flag(parser: argparse.ArgumentParser, long_flag: str) -> str:
+    """Pick strict short flag for `long_flag` in `parser`, or raise on conflict."""
+    used = set()
+    for action in parser._actions:
+        for opt in action.option_strings:
+            if opt.startswith("-") and not opt.startswith("--"):
+                used.add(opt)
+
+    candidate = _strict_short_flag(long_flag)
+    if candidate in used:
+        raise ValueError(
+            f"Short option collision in parser '{parser.prog}': "
+            f"{candidate} already exists; rename option '{long_flag}' to keep unique initials."
+        )
+    return candidate
+
+
+def _patch_container_add_argument(container, parser: argparse.ArgumentParser) -> None:
+    """Patch add_argument on a parser/group to auto-attach short flags."""
+    if getattr(container, "_aiteam_auto_short_wrapped", False):
+        return
+
+    original_add_argument = container.add_argument
+
+    def add_argument_with_auto_short(*name_or_flags, **kwargs):
+        flags = list(name_or_flags)
+        has_long = any(isinstance(f, str) and f.startswith("--") for f in flags)
+        has_short = any(isinstance(f, str) and f.startswith("-") and not f.startswith("--") for f in flags)
+
+        if has_long and not has_short:
+            first_long = next(f for f in flags if isinstance(f, str) and f.startswith("--"))
+            short = _pick_short_flag(parser, first_long)
+            flags = [short, *flags]
+        elif has_long and has_short:
+            first_long = next(f for f in flags if isinstance(f, str) and f.startswith("--"))
+            first_short = next(f for f in flags if isinstance(f, str) and f.startswith("-") and not f.startswith("--"))
+            expected = _strict_short_flag(first_long)
+            if first_short != expected:
+                raise ValueError(
+                    f"Invalid short option for '{first_long}' in parser '{parser.prog}': "
+                    f"expected '{expected}', got '{first_short}'."
+                )
+
+        return original_add_argument(*flags, **kwargs)
+
+    container.add_argument = add_argument_with_auto_short
+    setattr(container, "_aiteam_auto_short_wrapped", True)
+
+
+def _enable_auto_short_options(parser: argparse.ArgumentParser) -> None:
+    """Enable automatic short option generation for a parser and its groups."""
+    if getattr(parser, "_aiteam_auto_short_enabled", False):
+        return
+
+    _patch_container_add_argument(parser, parser)
+
+    original_add_mutually_exclusive_group = parser.add_mutually_exclusive_group
+    original_add_argument_group = parser.add_argument_group
+
+    def add_mutually_exclusive_group_with_auto(*args, **kwargs):
+        group = original_add_mutually_exclusive_group(*args, **kwargs)
+        _patch_container_add_argument(group, parser)
+        return group
+
+    def add_argument_group_with_auto(*args, **kwargs):
+        group = original_add_argument_group(*args, **kwargs)
+        _patch_container_add_argument(group, parser)
+        return group
+
+    parser.add_mutually_exclusive_group = add_mutually_exclusive_group_with_auto
+    parser.add_argument_group = add_argument_group_with_auto
+
+    setattr(parser, "_aiteam_auto_short_enabled", True)
+
+
 def _parse_agents(agent_args: List[str]) -> List[Tuple[str, str]]:
     """
     Parse ["name=command", ...] into [(name, command), ...].
@@ -241,7 +325,7 @@ def _parse_agents(agent_args: List[str]) -> List[Tuple[str, str]]:
     agents: List[Tuple[str, str]] = []
     for item in agent_args:
         if "=" not in item:
-            raise ValueError(f"Invalid --agent value (expected name=command): {item}")
+            raise ValueError(f"Invalid --worker value (expected name=command): {item}")
         name, cmd = item.split("=", 1)
         name = name.strip()
         cmd = cmd.strip()
@@ -393,7 +477,7 @@ def cmd_start(args: argparse.Namespace) -> int:
       aiteam start --main claude --attach
       aiteam start --main cursor --attach
       aiteam start --main codex --attach
-      aiteam start --main custom --command "agent" --title cursor --attach
+      aiteam start --main custom --exec "agent" --title cursor --attach
     """
     main = (getattr(args, "main", None) or "claude").strip().lower()
     cmd = (getattr(args, "command", None) or "").strip() or None
@@ -407,7 +491,7 @@ def cmd_start(args: argparse.Namespace) -> int:
             title = "claude"
     elif main == "cursor":
         # Cursor CLI's landing page shows the primary command as `agent`.
-        # Users can still override this with --command.
+        # Users can still override this with --exec.
         if cmd is None:
             cmd = "agent"
         if title is None:
@@ -420,7 +504,7 @@ def cmd_start(args: argparse.Namespace) -> int:
     else:
         # custom
         if cmd is None:
-            raise TmuxError("For --main custom, you must provide --command.")
+            raise TmuxError("For --main custom, you must provide --exec.")
         if title is None:
             title = "main"
 
@@ -483,7 +567,7 @@ def cmd_add(args: argparse.Namespace) -> int:
             pairs = _parse_agents([agent_arg])
             name, command = pairs[0]
         if not name or not command:
-            raise TmuxError("Agent not specified. Use --agent name=command or --name/--command.")
+            raise TmuxError("Agent not specified. Use --worker name=command or --name/--exec.")
 
         # If the agent pane already exists, decide what to do.
         panes = list_panes(session)
@@ -672,7 +756,7 @@ def _read_text_input(args: argparse.Namespace) -> str:
             return f.read()
     if args.stdin:
         return sys.stdin.read()
-    raise TmuxError("No input text provided. Use --text, --file, or --stdin.")
+    raise TmuxError("No input text provided. Use --body, --file, or --pipe.")
 
 
 def cmd_send(args: argparse.Namespace) -> int:
@@ -786,10 +870,6 @@ def cmd_relay(args: argparse.Namespace) -> int:
         # Extraction strategy
         if args.pattern:
             flags = re.MULTILINE
-            if args.dotall:
-                flags |= re.DOTALL
-            if args.ignore_case:
-                flags |= re.IGNORECASE
             rx = re.compile(args.pattern, flags)
 
             def extract_messages(text: str) -> List[str]:
@@ -812,7 +892,7 @@ def cmd_relay(args: argparse.Namespace) -> int:
             begin = args.begin
             end = args.end
             if begin == "" or end == "":
-                raise TmuxError("--begin/--end must be non-empty (or use --pattern).")
+                raise TmuxError("--begin/--end must be non-empty (or use --regex).")
             rx = re.compile(re.escape(begin) + r"(.*?)" + re.escape(end), re.DOTALL)
 
             def extract_messages(text: str) -> List[str]:
@@ -827,39 +907,13 @@ def cmd_relay(args: argparse.Namespace) -> int:
         # Dedup cache (hash -> last_seen_time)
         seen: dict[str, float] = {}
 
-        # Initial snapshot (used to either seed the cache or send existing blocks once).
+        # Initial snapshot: seed cache with existing matches to avoid relaying old blocks.
         initial = capture_pane(src_id, lines=lines)
         initial_msgs = extract_messages(initial)
-
-        if args.include_existing:
-            # Send any matches already present in the pane, once.
-            for msg in initial_msgs:
-                normalized = msg.strip("\n")
-                if not normalized.strip():
-                    continue
-                h = _sha(normalized.strip())
-                if not h or h in seen:
-                    continue
+        for msg in initial_msgs:
+            h = _sha(msg.strip())
+            if h:
                 seen[h] = time.time()
-                out_msg = normalized
-                if args.prefix:
-                    out_msg = f"{args.prefix}\n{out_msg}"
-                if args.header:
-                    out_msg = f"{args.header}\n{out_msg}"
-                if args.dry_run:
-                    sys.stdout.write(out_msg + "\n")
-                else:
-                    paste_text(dst_id, out_msg, enter=(not args.no_enter))
-                sent_count += 1
-                if args.once or (max_sends > 0 and sent_count >= max_sends):
-                    return 0
-
-        else:
-            # Seed cache with existing content, to avoid relaying old blocks.
-            for msg in initial_msgs:
-                h = _sha(msg.strip())
-                if h:
-                    seen[h] = time.time()
 
         while True:
             time.sleep(max(0.1, interval))
@@ -1049,6 +1103,7 @@ def _auto_start_error_analyzer_codex(args: argparse.Namespace, *, error_text: st
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="aiteam", description="A lightweight tmux helper for multi-agent CLI collaboration.")
+    _enable_auto_short_options(p)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument(
         "--no-error-codex",
@@ -1056,6 +1111,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable auto-starting an error-analyzer Codex pane when aiteam encounters a tmux/control error.",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    original_add_parser = sub.add_parser
+
+    def add_parser_with_auto_short(*args, **kwargs):
+        sp = original_add_parser(*args, **kwargs)
+        _enable_auto_short_options(sp)
+        return sp
+
+    sub.add_parser = add_parser_with_auto_short
 
     sp = sub.add_parser("spawn", help="Create a tmux session, split panes, and start agent commands.")
     sp.add_argument(
@@ -1066,7 +1130,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cwd", default=None, help="Working directory for panes (default: current directory)")
     sp.add_argument("--layout", choices=["vertical", "horizontal", "tiled"], default="vertical",
                     help="Pane split layout for 2 agents. For 3+ agents, layout becomes tiled. (default: vertical)")
-    sp.add_argument("--agent", action="append", default=[], help="Agent definition: name=command (repeatable)")
+    sp.add_argument("--worker", dest="agent", action="append", default=[], help="Worker definition: name=command (repeatable)")
     sp.add_argument("--force", action="store_true", help="Replace session if it already exists")
     sp.add_argument("--attach", action="store_true", help="Attach after spawning")
     sp.set_defaults(func=cmd_spawn)
@@ -1079,7 +1143,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sp.add_argument("--cwd", default=None, help="Working directory for the session (default: current directory)")
     sp.add_argument("--main", choices=["claude", "cursor", "codex", "custom"], default="claude", help="Which main agent to start (default: claude)")
-    sp.add_argument("--command", default=None, help="Command to start the main agent (overrides the default for --main)")
+    sp.add_argument("--exec", dest="command", default=None, help="Command to start the main agent (overrides the default for --main)")
     sp.add_argument("--title", default=None, help="Pane title for the main agent (default: claude/cursor/codex/main)")
     sp.add_argument("--force", action="store_true", help="Replace session if it already exists")
     sp.add_argument("--attach", action="store_true", help="Attach after starting")
@@ -1090,9 +1154,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Add a new agent pane to an existing session (split from the current pane if inside tmux).",
     )
     sp.add_argument("--session", default=None, help="tmux session name (default: current session if inside tmux)")
-    sp.add_argument("--agent", default=None, help="Agent definition: name=command (alternative to --name/--command)")
+    sp.add_argument("--worker", dest="agent", default=None, help="Worker definition: name=command (alternative to --name/--exec)")
     sp.add_argument("--name", default=None, help="Agent name (pane title)")
-    sp.add_argument("--command", default=None, help="Command to run in the new pane")
+    sp.add_argument("--exec", dest="command", default=None, help="Command to run in the new pane")
     sp.add_argument("--cwd", default=None, help="Working directory for the new pane (default: current directory)")
     sp.add_argument(
         "--layout",
@@ -1102,13 +1166,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sp.add_argument("--tiled", action="store_true", help="After adding, apply tmux tiled layout")
     sp.add_argument(
-        "--split-from",
+        "--base-pane",
         dest="split_from",
         default=None,
         help="Pane selector to split from (agent name or pane index). Default: current pane.",
     )
     sp.add_argument(
-        "--if-exists",
+        "--if-duplicate",
+        dest="if_exists",
         choices=["skip", "error"],
         default="skip",
         help="If a pane with the same title already exists: skip or error (default: skip)",
@@ -1133,7 +1198,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Codex instance id (unique within session). If omitted, auto-allocates a numeric id.",
     )
     sp.add_argument("--name", default="codex", help="Codex instance label (shown in pane title).")
-    sp.add_argument("--command", default="codex", help="Command to start Codex (default: codex)")
+    sp.add_argument("--exec", dest="command", default="codex", help="Command to start Codex (default: codex)")
     sp.add_argument("--cwd", default=None, help="Working directory for the new pane (default: current directory)")
     sp.add_argument(
         "--layout",
@@ -1143,13 +1208,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sp.add_argument("--tiled", action="store_true", help="After adding, apply tmux tiled layout")
     sp.add_argument(
-        "--split-from",
+        "--base-pane",
         dest="split_from",
         default=None,
         help="Pane selector to split from (agent name or pane index). Default: current pane.",
     )
     sp.add_argument(
-        "--if-exists",
+        "--policy",
+        dest="if_exists",
         choices=["skip", "error"],
         default="error",
         help="If the requested --id already exists: skip or error (default: error)",
@@ -1162,7 +1228,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sp.add_argument("--quiet", action="store_true", help="Reduce stderr output")
     sp.add_argument(
-        "--no-return",
+        "--omit-selector",
         dest="print_selector",
         action="store_false",
         default=True,
@@ -1184,9 +1250,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--session", required=True, help="tmux session name")
     sp.add_argument("--to", required=True, help="Target pane selector (agent name or pane index)")
     g = sp.add_mutually_exclusive_group(required=True)
-    g.add_argument("--text", help="Text to send")
+    g.add_argument("--body", dest="text", help="Text to send")
     g.add_argument("--file", help="Read text from file")
-    g.add_argument("--stdin", action="store_true", help="Read text from stdin")
+    g.add_argument("--pipe", dest="stdin", action="store_true", help="Read text from stdin")
     sp.add_argument("--no-enter", action="store_true", help="Do not send Enter after pasting")
     sp.set_defaults(func=cmd_send)
 
@@ -1202,7 +1268,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--from", dest="from_pane", required=True, help="Source pane selector (agent name or pane index)")
     sp.add_argument("--to", dest="to_pane", required=True, help="Destination pane selector (agent name or pane index)")
     sp.add_argument("--lines", type=int, default=120, help="Number of lines to capture (default: 120)")
-    sp.add_argument("--header", default=None, help="Optional header line")
+    sp.add_argument("--caption", dest="header", default=None, help="Optional header line")
     sp.add_argument("--no-enter", action="store_true", help="Do not send Enter after pasting")
     sp.set_defaults(func=cmd_handoff)
 
@@ -1216,15 +1282,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--lines", type=int, default=2000, help="Capture window size (default: 2000 lines)")
     sp.add_argument("--interval", type=float, default=1.0, help="Polling interval in seconds (default: 1.0)")
     sp.add_argument(
-        "--dedupe-ttl",
+        "--window-ttl",
+        dest="dedupe_ttl",
         type=float,
         default=600.0,
         help="Seconds to remember already-relayed messages (default: 600). 0 disables eviction.",
-    )
-    sp.add_argument(
-        "--include-existing",
-        action="store_true",
-        help="Relay any matching blocks already visible when relay starts (default: off)",
     )
     sp.add_argument("--once", action="store_true", help="Exit after the first successful relay")
     sp.add_argument(
@@ -1234,10 +1296,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Exit after relaying N messages (0 = unlimited, default: 0)",
     )
     sp.add_argument("--no-enter", action="store_true", help="Do not send Enter after pasting")
-    sp.add_argument("--header", default=None, help="Optional header line to prepend to each relayed message")
+    sp.add_argument("--caption", dest="header", default=None, help="Optional header line to prepend to each relayed message")
     sp.add_argument("--prefix", default=None, help="Optional prefix (can be multi-line) to prepend to each message")
     sp.add_argument(
         "--dry-run",
+        dest="dry_run",
         action="store_true",
         help="Do not paste into the destination pane; print relayed messages to stdout",
     )
@@ -1245,7 +1308,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Extraction mode
     sp.add_argument(
-        "--pattern",
+        "--regex",
+        dest="pattern",
         default=None,
         help="Regex pattern to extract messages. If omitted, marker mode is used.",
     )
@@ -1254,9 +1318,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Regex capture group number to send (default: group 1 if present, else full match)",
     )
-    sp.add_argument("--dotall", action="store_true", help="Regex: enable DOTALL ('.' matches newlines)")
-    sp.add_argument("--ignore-case", action="store_true", help="Regex: ignore case")
-
     # Marker mode (default)
     sp.add_argument("--begin", default="[PUSH]", help="Marker begin token (default: [PUSH])")
     sp.add_argument("--end", default="[/PUSH]", help="Marker end token (default: [/PUSH])")

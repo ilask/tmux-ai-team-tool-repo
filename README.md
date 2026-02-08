@@ -64,7 +64,7 @@ Cursor CLI as main (command is `agent`):
 aiteam start --cwd /path/to/project --main cursor --attach
 
 # or:
-aiteam start --cwd /path/to/project --main custom --title cursor --command "agent" --attach
+aiteam start --cwd /path/to/project --main custom --title cursor --exec "agent" --attach
 ```
 
 Codex as main:
@@ -94,7 +94,7 @@ You can target a specific Codex later via:
 Example:
 
 ```bash
-aiteam send --session myproj --to codex:2 --text "Run tests and summarize failures."
+aiteam send --session myproj --to codex:2 --body "Run tests and summarize failures."
 ```
 
 Useful options:
@@ -103,15 +103,15 @@ Useful options:
 aiteam codex --layout horizontal   # split top/bottom
 aiteam codex --focus new           # leave focus in the new Codex pane
 aiteam codex --id 10 --name perf   # choose a specific id
-aiteam codex --if-exists skip      # if that id already exists, do nothing
-aiteam codex --no-return           # do NOT print selector to stdout
+aiteam codex --policy skip         # if that id already exists, do nothing
+aiteam codex --omit-selector       # do NOT print selector to stdout
 aiteam codex --json                # print JSON (id/name/selector/session)
 ```
 
 ### 2) Handoff without copy/paste
 
 ```bash
-aiteam handoff --session myproj --from claude --to codex:1 --lines 120 --header "Plan from main:"
+aiteam handoff --session myproj --from claude --to codex:1 --lines 120 --caption "Plan from main:"
 ```
 
 (Replace `--from claude` with your pane title, e.g. `--from cursor` or `--from codex`.)
@@ -121,7 +121,7 @@ aiteam handoff --session myproj --from claude --to codex:1 --lines 120 --header 
 Run a relay that watches the main pane and pushes marker blocks to a Codex pane:
 
 ```bash
-aiteam relay --session myproj --from cursor --to codex:1 --header "From main:" --verbose
+aiteam relay --session myproj --from cursor --to codex:1 --caption "From main:" --verbose
 ```
 
 Tell the source agent to output:
@@ -147,6 +147,8 @@ aiteam kill --session myproj
 ```
 
 ## Commands
+
+Every long option has a strict short alias based on its initial letter (no collisions allowed per subcommand). Check each command's `--help`.
 
 - `start`  : create a tmux session and start a single main agent pane (Claude/Cursor/Codex)
 - `spawn`  : create a tmux session, split panes, and start agent commands
