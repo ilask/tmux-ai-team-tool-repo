@@ -1,0 +1,43 @@
+# Phase 5: Inter-Agent Communication (Agent Teams) Plan
+
+This document outlines the plan to upgrade the `aiteam` Hub from a "Supervisor-Worker" model (where humans route messages) to a true "Agent Teams" model (where AI agents can autonomously route messages to each other).
+
+## 1. Architectural Concept: Inter-Agent Router
+
+Currently, agents reply back to the `currentRequester` (usually `lead`).
+To enable autonomous collaboration, we need an **Inter-Agent Router**.
+
+*   **System Prompt Injection:** Upon adapter startup, we must inject a hidden system prompt to the agent: 
+    *   *"You are part of an AI Agent Team. You can delegate tasks to other agents by starting your message with `@<agent_name> <task>`. Available agents are: codex (for shell/OS/infrastructure), claude (for coding/refactoring), gemini (for architecture/log analysis)."*
+*   **Adapter Message Interceptor:** Before an adapter sends an agent's response back to the `lead`, it parses the output text.
+    *   If the output starts with `@<target_agent>`, the adapter dynamically changes the `to` field of the WebSocket message from `lead` to `<target_agent>`.
+    *   The Hub then routes this directly to the `<target_agent>`.
+*   **Response Bubbling:** When an agent finishes a delegated sub-task, it needs to reply to the agent that requested it, eventually bubbling up to the `lead` (human).
+
+## 2. Updated Use Cases (True Agent Teams)
+
+*   **Use Case: Automated Bug Fixing (The "Triage & Fix" Loop)**
+    1.  **Lead (Human)** types: `@gemini We have a crash on startup. Please investigate and fix.`
+    2.  **Gemini** receives the prompt. It decides it needs system logs.
+    3.  **Gemini** autonomously outputs: `@codex Run 'npm run start' and capture the stack trace.`
+    4.  The Hub routes this to **Codex**. Codex executes the command and returns the stderr trace to **Gemini**.
+    5.  **Gemini** analyzes the trace, identifies the faulty file, and outputs: `@claude The bug is a missing null check in src/app.ts. Please refactor it.`
+    6.  **Claude** receives this, writes the code, and replies: `Refactoring complete.`
+    7.  **Gemini** receives the confirmation and finally replies to **Lead (Human)**: `The bug has been fixed by Claude.`
+
+## 3. E2E Test Case
+
+We will add a new test in `src/__tests__/e2e/inter-agent.spec.ts`.
+
+*   **Test Name:** `Agents can autonomously delegate tasks`
+*   **Setup:** Start Hub, Codex Adapter, and a Mock Agent Adapter (acting as Claude/Gemini to save API costs).
+*   **Action:** 
+    1. Send a prompt to the Mock Agent: "Delegate a task to codex to echo 'HELO'".
+    2. The Mock Agent outputs `@codex echo 'HELO'`.
+*   **Assertion:** 
+    1. Verify the Hub routes the message to Codex.
+    2. Verify Codex executes the shell command and returns `HELO`.
+    3. Verify the Mock Agent receives the `HELO` response, proving bidirectional inter-agent communication without human intervention.
+
+---
+Please review this plan. Are there any flaws in the "Adapter Message Interceptor" approach? Specifically, consider how context/history is maintained when an agent like Claude receives an unexpected message from Codex instead of the Lead. Does this match your understanding of effective multi-agent orchestration?
