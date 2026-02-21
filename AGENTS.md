@@ -30,3 +30,8 @@ It contains crucial knowledge gathered from trial-and-error regarding:
 - `README.md` を確認する
 - `docs/PROJECT_SPEC.md` と `docs/RUNBOOK.md` を確認する
 - `docs/WORKLOG.md` の直近エントリを確認する
+
+## 作業継続ルールの指針 (Agent Directives)
+- "continue" your task as long as possible.
+- Consult codex in English after you make some concrete progress.
+- After codex review, you criticize that review result (if it's overly pedantic or incorrect for the context), and you MUST continue your tasks autonomously without unnecessarily stopping for user confirmation unless blocked.

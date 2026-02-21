@@ -1,5 +1,43 @@
 # aiteam Worklog
 
+## 2026/02/21 12:59:04 (JST)
+*   **目的:** 
+    *   Codexのレビューフィードバックに基づく `PROJECT_SPEC.md` の修正とブラッシュアップ。
+    *   `AGENTS.md` への作業継続ルール (Agent Directives) の追加。
+    *   Node.js (TypeScript) プロジェクトの初期化の開始。
+*   **変更ファイル:** 
+    *   `AGENTS.md` (追記)
+    *   `docs/PROJECT_SPEC.md` (修正)
+    *   `docs/WORKLOG.md` (追記)
+*   **実行コマンド:**
+    *   `write_file` を用いたファイルの直接編集
+*   **結果:**
+    *   `PROJECT_SPEC.md` にNode LTSの固定、Windows向けのE2Eテスト要件（SIGKILL回避・Graceful Shutdown）、Agent Teamsの出典リンクの明記、ストリーム通信特有のバックプレッシャー要件を追加し、当初の要件を完全に満たす形に更新した。
+    *   `AGENTS.md` に自律的にタスクを継続し、必要に応じてCodexに英語で相談しつつ、過度な指摘には批判的思考を持つよう指示を追加した。
+*   **出力ファイルパス:**
+    *   `AGENTS.md`
+    *   `docs/PROJECT_SPEC.md`
+    *   `docs/WORKLOG.md`
+
+## 2026/02/21 12:53:53 (JST)
+*   **目的:**
+    *   `docs/PROJECT_SPEC.md` が初期要件を満たしているかのレビュー（要件別ギャップ分析）。
+    *   Node.js開発環境のベストプラクティス妥当性、密結合ヘッドレス構成向けE2Eテスト網羅性、Agent Teams適合性の検証。
+    *   Claude Code Agent Teamsの現行公式ドキュメントとの整合確認。
+*   **変更ファイル:**
+    *   `docs/WORKLOG.md` (追記)
+*   **実行コマンド:**
+    *   `Get-Content README.md`, `Get-Content docs/PROJECT_SPEC.md`, `Get-Content docs/WORKLOG.md -Tail 120`
+    *   `Get-ChildItem docs`, `Get-Content tests/e2e/*.py`
+    *   `codex --help`, `codex app-server --help`, `claude --help`, `gemini --help`
+    *   Web確認: Anthropic公式ドキュメント（subagents / run-agent-teams-and-workflows）
+*   **結果:**
+    *   要件1/2/3/5/7/8は「概ね記載あり」だが、要件4/6および実装可能性観点で不足を確認。
+    *   主要不足点: (1) Claude Agent Teams説明の一部が公式仕様と不整合、(2) Node.js環境定義に再現性/運用要件の不足、(3) E2E計画に順序保証・再送・キャンセル・Windows互換シグナルなどの重要ケース不足。
+    *   追加推奨項目を要件別に整理し、最終レビューで提示予定。
+*   **出力ファイルパス:**
+    *   `docs/WORKLOG.md`
+
 ## 2026/02/21 12:48:03 (JST)
 *   **目的:** 
     *   Node.js (TypeScript) への完全移行に向けたタスク計画書の作成。
@@ -40,22 +78,4 @@
 *   **出力ファイルパス:**
     *   `AGENTS.md`
     *   `docs/codex_interaction_guide.md`
-    *   `docs/WORKLOG.md`
-## 2026/02/21 12:53:53 (JST)
-*   **目的:**
-    *   `docs/PROJECT_SPEC.md` が初期要件を満たしているかのレビュー（要件別ギャップ分析）。
-    *   Node.js開発環境のベストプラクティス妥当性、密結合ヘッドレス構成向けE2Eテスト網羅性、Agent Teams適合性の検証。
-    *   Claude Code Agent Teamsの現行公式ドキュメントとの整合確認。
-*   **変更ファイル:**
-    *   `docs/WORKLOG.md` (追記)
-*   **実行コマンド:**
-    *   `Get-Content README.md`, `Get-Content docs/PROJECT_SPEC.md`, `Get-Content docs/WORKLOG.md -Tail 120`
-    *   `Get-ChildItem docs`, `Get-Content tests/e2e/*.py`
-    *   `codex --help`, `codex app-server --help`, `claude --help`, `gemini --help`
-    *   Web確認: Anthropic公式ドキュメント（subagents / run-agent-teams-and-workflows）
-*   **結果:**
-    *   要件1/2/3/5/7/8は「概ね記載あり」だが、要件4/6および実装可能性観点で不足を確認。
-    *   主要不足点: (1) Claude Agent Teams説明の一部が公式仕様と不整合、(2) Node.js環境定義に再現性/運用要件の不足、(3) E2E計画に順序保証・再送・キャンセル・Windows互換シグナルなどの重要ケース不足。
-    *   追加推奨項目を要件別に整理し、最終レビューで提示予定。
-*   **出力ファイルパス:**
     *   `docs/WORKLOG.md`
