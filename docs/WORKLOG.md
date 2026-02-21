@@ -1,5 +1,22 @@
 # aiteam Worklog
 
+## 2026/02/21 13:26:13 (JST)
+*   **目的:** 
+    *   CodexのPhase 2実装レビューを受け、CodexAdapterのライフサイクルとJSON-RPCハンドシェイクのバグを修正する。
+*   **変更ファイル:** 
+    *   `src/adapters/codex.ts` (修正)
+    *   `docs/WORKLOG.md` (追記)
+*   **実行コマンド:**
+    *   `pnpm run test src/__tests__/adapters/codex.spec.ts`
+*   **結果:**
+    *   Codexの `initialize` レスポンスを待ってから `initialized` 通知を送信するようにJSON-RPCハンドシェイクを完全に実装。
+    *   `shell: false` だとWindowsで `codex.cmd` が `EINVAL` となるため、`shell: process.platform === 'win32'` に戻しつつ、停止時のフラグ (`isStopping`) を追加して多重破棄を防止。
+    *   Hub経由で送信されたリクエストの送信元（`from`）を `requestMap` で管理し、レスポンス時に正しい要求元へ結果をルーティング（送信元への返送）する機構を追加。
+    *   Vitestのテストケースが成功し、正しく初期化ログが出力されることを確認した。
+*   **出力ファイルパス:**
+    *   `src/adapters/codex.ts`
+    *   `docs/WORKLOG.md`
+
 ## 2026/02/21 13:21:24 (JST)
 *   **目的:** 
     *   Phase 2: Codex Adapter の実装。

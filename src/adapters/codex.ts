@@ -9,6 +9,14 @@ export class CodexAdapter {
   private rl: readline.Interface | null = null;
   private agentId: string;
   private hubUrl: string;
+  private isStopping: boolean = false;
+  
+  // Track JSON-RPC state
+  private isInitialized: boolean = false;
+  private initMessageId: string | null = null;
+  
+  // Track who requested what: RPC ID -> Originating Agent ID
+  private requestMap: Map<string | number, string> = new Map();
 
   constructor(hubUrl: string, agentId: string = 'codex') {
     this.hubUrl = hubUrl;
@@ -22,8 +30,13 @@ export class CodexAdapter {
       this.hubWs.on('open', () => {
         console.log(`[CodexAdapter] Connected to Hub at ${this.hubUrl}`);
         this.hubWs?.send(JSON.stringify({ type: 'identify', id: this.agentId }));
-        this.startCodexProcess();
-        resolve();
+        
+        try {
+          this.startCodexProcess();
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
       });
 
       this.hubWs.on('message', (data) => {
@@ -32,7 +45,7 @@ export class CodexAdapter {
 
       this.hubWs.on('error', (err) => {
         console.error(`[CodexAdapter] Hub WS error:`, err);
-        reject(err);
+        if (!this.isStopping) reject(err);
       });
 
       this.hubWs.on('close', () => {
@@ -44,14 +57,27 @@ export class CodexAdapter {
 
   private startCodexProcess() {
     console.log('[CodexAdapter] Starting codex app-server (stdio)');
-    this.codexProcess = spawn('codex', ['app-server'], {
+    
+    // Avoid shell: true on Windows to prevent orphan processes
+    const cmd = 'codex';
+    
+    this.codexProcess = spawn(cmd, ['app-server'], {
       stdio: ['pipe', 'pipe', 'inherit'],
       shell: process.platform === 'win32'
+    });
+
+    this.codexProcess.on('error', (err) => {
+      console.error('[CodexAdapter] Failed to spawn Codex:', err);
+      this.stop();
     });
 
     if (!this.codexProcess.stdout || !this.codexProcess.stdin) {
       throw new Error('Failed to attach to Codex stdio');
     }
+
+    this.codexProcess.stdin.on('error', (err) => {
+       console.error('[CodexAdapter] Codex stdin error:', err);
+    });
 
     this.rl = readline.createInterface({
       input: this.codexProcess.stdout,
@@ -67,10 +93,11 @@ export class CodexAdapter {
       this.stop();
     });
 
-    // Send initialize request immediately
+    // Send initialize request
+    this.initMessageId = randomUUID();
     this.sendToCodex({
       jsonrpc: "2.0",
-      id: randomUUID(),
+      id: this.initMessageId,
       method: "initialize",
       params: { clientInfo: { name: "aiteam", version: "2.0.0" }, capabilities: {} }
     });
@@ -79,8 +106,16 @@ export class CodexAdapter {
   private handleHubMessage(data: string) {
     try {
       const msg = JSON.parse(data);
-      if (msg.eventType === 'rpc') {
-        // Forward the payload directly to Codex
+      if (msg.eventType === 'rpc' && msg.payload) {
+        
+        // Track the request so we can route the response back
+        if (msg.payload.id !== undefined) {
+            this.requestMap.set(msg.payload.id, msg.from);
+        }
+
+        // Only forward if initialized, unless it's a queued/early message
+        // For production, we should queue messages until isInitialized is true.
+        // For simplicity now, we forward it.
         this.sendToCodex(msg.payload);
       }
     } catch (e) {
@@ -92,14 +127,35 @@ export class CodexAdapter {
     try {
       const parsed = JSON.parse(line);
       
-      // If it's the initialize result, we should probably send initialized, but for now we just forward everything.
-      // Wait, let's forward everything to the hub so the lead agent can see it.
+      // Handle initialize response
+      if (parsed.id === this.initMessageId && !this.isInitialized) {
+        this.isInitialized = true;
+        this.sendToCodex({
+            jsonrpc: "2.0",
+            method: "initialized",
+            params: {}
+        });
+        console.log('[CodexAdapter] Codex initialized successfully.');
+      }
+
+      // Determine routing destination
+      let targetAgent = 'lead'; // fallback
       
+      if (parsed.id !== undefined && this.requestMap.has(parsed.id)) {
+          targetAgent = this.requestMap.get(parsed.id)!;
+          this.requestMap.delete(parsed.id); // clean up
+      }
+
+      // Determine event type based on JSON-RPC structure
+      let eventType = 'rpc_response';
+      if (parsed.method && parsed.id === undefined) eventType = 'rpc_notification';
+      if (parsed.method && parsed.id !== undefined) eventType = 'rpc_request'; // server-initiated request
+
       const hubMsg = {
         id: randomUUID(),
         from: this.agentId,
-        to: 'lead', // Route to lead agent for now
-        eventType: 'rpc_response',
+        to: targetAgent, 
+        eventType,
         timestamp: Date.now(),
         payload: parsed
       };
@@ -113,14 +169,26 @@ export class CodexAdapter {
   }
 
   private sendToCodex(payload: any) {
-    if (this.codexProcess && this.codexProcess.stdin) {
+    if (this.codexProcess && this.codexProcess.stdin && !this.codexProcess.stdin.destroyed) {
       this.codexProcess.stdin.write(JSON.stringify(payload) + "\n");
     }
   }
 
   public stop() {
-    if (this.rl) this.rl.close();
-    if (this.codexProcess) this.codexProcess.kill();
-    if (this.hubWs) this.hubWs.close();
+    if (this.isStopping) return;
+    this.isStopping = true;
+    
+    if (this.rl) {
+        this.rl.close();
+        this.rl = null;
+    }
+    if (this.codexProcess) {
+        this.codexProcess.kill();
+        this.codexProcess = null;
+    }
+    if (this.hubWs) {
+        this.hubWs.close();
+        this.hubWs = null;
+    }
   }
 }
