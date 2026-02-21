@@ -1,5 +1,25 @@
 # aiteam Worklog
 
+## 2026/02/21 13:21:24 (JST)
+*   **目的:** 
+    *   Phase 2: Codex Adapter の実装。
+    *   WebSocketを用いた試験的通信から、より安定した `stdio` (標準入出力) を用いたJSON-RPC通信への移行検証。
+*   **変更ファイル:** 
+    *   `src/adapters/codex.ts` (新規作成)
+    *   `src/__tests__/adapters/codex.spec.ts` (新規作成)
+    *   `docs/WORKLOG.md` (追記)
+*   **実行コマンド:**
+    *   `npx tsx test-codex-stdio.ts` (検証用スクリプトの実行)
+    *   `pnpm run test src/__tests__/adapters/codex.spec.ts`
+*   **結果:**
+    *   `codex app-server` を `stdio` トランスポートで子プロセスとして起動し、JSON-RPC を解釈してCentral Hubと連携する `CodexAdapter` を実装した。
+    *   `initialize` リクエストを正常に処理し、Hub経由で `lead` エージェントにレスポンスをルーティングできることをテストで確認した。
+    *   WebSocket (`--listen ws://...`) は接続が不安定（ECONNRESET等）になりやすいため、ローカルプロセス間通信のベストプラクティスである `stdio` 方式を採用するアーキテクチャ変更を行った。
+*   **出力ファイルパス:**
+    *   `src/adapters/codex.ts`
+    *   `src/__tests__/adapters/codex.spec.ts`
+    *   `docs/WORKLOG.md`
+
 ## 2026/02/21 13:15:13 (JST)
 *   **目的:** 
     *   CodexのPhase 1実装レビューを反映し、Central Hubのアーキテクチャ上の致命的な欠陥を修正する。
