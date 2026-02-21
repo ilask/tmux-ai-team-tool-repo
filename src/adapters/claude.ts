@@ -25,7 +25,7 @@ export class ClaudeAdapter {
       this.hubWs = new WebSocket(this.hubUrl);
 
       this.hubWs.on('open', () => {
-        console.log(`[ClaudeAdapter] Connected to Hub at ${this.hubUrl}`);
+        // console.debug(`[ClaudeAdapter] Connected to Hub at ${this.hubUrl}`);
         this.hubWs?.send(JSON.stringify({ type: 'identify', id: this.agentId }));
         
         try {
@@ -46,14 +46,14 @@ export class ClaudeAdapter {
       });
 
       this.hubWs.on('close', () => {
-        console.log(`[ClaudeAdapter] Hub WS closed`);
+        // console.debug(`[ClaudeAdapter] Hub WS closed`);
         this.stop();
       });
     });
   }
 
   private startClaudeProcess() {
-    console.log('[ClaudeAdapter] Starting claude process (stdio streaming)');
+    // console.debug('[ClaudeAdapter] Starting claude process (stdio streaming)');
     
     const cmd = 'claude';
     
@@ -85,7 +85,7 @@ export class ClaudeAdapter {
     });
 
     this.claudeProcess.on('exit', (code) => {
-      console.log(`[ClaudeAdapter] Claude process exited with code ${code}`);
+      // console.debug(`[ClaudeAdapter] Claude process exited with code ${code}`);
       if (!this.isStopping) {
         // Claude --print might exit after one interaction. We might need to handle respawning here for a long-lived agent.
         // For Phase 2, we just let it stop.
@@ -141,7 +141,7 @@ export class ClaudeAdapter {
           to = match[1];
           eventType = 'delegate';
           payload = match[2];
-          console.log(`[ClaudeAdapter] Intercepted delegation to ${to}`);
+          // console.debug(`[ClaudeAdapter] Intercepted delegation to ${to}`);
       } else {
           // If not a delegation, try to map back to the original requester.
           // Since Claude CLI stream-json doesn't natively return our correlation IDs,

@@ -31,7 +31,7 @@ export class CodexAdapter {
       this.hubWs = new WebSocket(this.hubUrl);
 
       this.hubWs.on('open', () => {
-        console.log(`[CodexAdapter] Connected to Hub at ${this.hubUrl}`);
+        // console.debug(`[CodexAdapter] Connected to Hub at ${this.hubUrl}`);
         this.hubWs?.send(JSON.stringify({ type: 'identify', id: this.agentId }));
         
         try {
@@ -52,14 +52,14 @@ export class CodexAdapter {
       });
 
       this.hubWs.on('close', () => {
-        console.log(`[CodexAdapter] Hub WS closed`);
+        // console.debug(`[CodexAdapter] Hub WS closed`);
         this.stop();
       });
     });
   }
 
   private startCodexProcess() {
-    console.log('[CodexAdapter] Starting codex app-server (stdio)');
+    // console.debug('[CodexAdapter] Starting codex app-server (stdio)');
     
     // Avoid shell: true on Windows to prevent orphan processes
     const cmd = 'codex';
@@ -92,7 +92,7 @@ export class CodexAdapter {
     });
 
     this.codexProcess.on('exit', (code) => {
-      console.log(`[CodexAdapter] Codex process exited with code ${code}`);
+      // console.debug(`[CodexAdapter] Codex process exited with code ${code}`);
       this.stop();
     });
 
@@ -161,7 +161,7 @@ export class CodexAdapter {
               method: "initialized",
               params: {}
           });
-          console.log('[CodexAdapter] Codex initialized successfully.');
+          // console.debug('[CodexAdapter] Codex initialized successfully.');
         }
   
               // Handle thread/start response

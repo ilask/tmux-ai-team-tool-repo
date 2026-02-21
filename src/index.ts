@@ -38,7 +38,7 @@ export class CentralHub {
             }
             agentId = parsed.id as string;
             this.connections.set(agentId, ws);
-            console.log(`Agent connected: ${agentId}`);
+            // console.debug(`Agent connected: ${agentId}`);
             return;
           }
           
@@ -70,14 +70,14 @@ export class CentralHub {
       ws.on('close', () => {
         if (agentId) {
           this.connections.delete(agentId);
-          console.log(`Agent disconnected: ${agentId}`);
+          // console.debug(`Agent disconnected: ${agentId}`);
         }
       });
     });
   }
 
   private routeMessage(message: AgentMessage, senderWs: WebSocket) {
-    console.log(`Routing from ${message.from} to ${message.to}`);
+    // console.debug(`Routing from ${message.from} to ${message.to}`);
     const targetWs = this.connections.get(message.to);
     
     if (targetWs && targetWs.readyState === WebSocket.OPEN) {

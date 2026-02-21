@@ -25,7 +25,7 @@ export class GeminiAdapter {
       this.hubWs = new WebSocket(this.hubUrl);
 
       this.hubWs.on('open', () => {
-        console.log(`[GeminiAdapter] Connected to Hub at ${this.hubUrl}`);
+        // console.debug(`[GeminiAdapter] Connected to Hub at ${this.hubUrl}`);
         this.hubWs?.send(JSON.stringify({ type: 'identify', id: this.agentId }));
         
         try {
@@ -46,14 +46,14 @@ export class GeminiAdapter {
       });
 
       this.hubWs.on('close', () => {
-        console.log(`[GeminiAdapter] Hub WS closed`);
+        // console.debug(`[GeminiAdapter] Hub WS closed`);
         this.stop();
       });
     });
   }
 
   private startGeminiProcess() {
-    console.log('[GeminiAdapter] Starting gemini process (stdio streaming)');
+    // console.debug('[GeminiAdapter] Starting gemini process (stdio streaming)');
     
     const cmd = 'gemini';
     
@@ -86,7 +86,7 @@ export class GeminiAdapter {
     });
 
     this.geminiProcess.on('exit', (code) => {
-      console.log(`[GeminiAdapter] Gemini process exited with code ${code}`);
+      // console.debug(`[GeminiAdapter] Gemini process exited with code ${code}`);
       this.stop();
     });
   }
@@ -134,7 +134,7 @@ export class GeminiAdapter {
           to = match[1];
           eventType = 'delegate';
           payload = match[2];
-          console.log(`[GeminiAdapter] Intercepted delegation to ${to}`);
+          // console.debug(`[GeminiAdapter] Intercepted delegation to ${to}`);
       } else {
           // Default to the first mapped requester (like Claude adapter)
           if (this.requestMap.size > 0) {
