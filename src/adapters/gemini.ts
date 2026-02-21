@@ -12,7 +12,8 @@ export class GeminiAdapter {
   private isStopping: boolean = false;
   
   // Track requests for routing responses back
-  private currentRequester: string = 'lead';
+  // Map of messageId -> originating agent
+  private requestMap: Map<string, string> = new Map();
 
   constructor(hubUrl: string, agentId: string = 'gemini') {
     this.hubUrl = hubUrl;
@@ -93,8 +94,16 @@ export class GeminiAdapter {
   private handleHubMessage(data: string) {
     try {
       const msg = JSON.parse(data);
-      if (msg.eventType === 'prompt' && msg.payload) {
-        this.currentRequester = msg.from;
+      if ((msg.eventType === 'prompt' || msg.eventType === 'delegate') && msg.payload) {
+        if (msg.id) {
+            this.requestMap.set(msg.id, msg.returnTo || msg.from);
+        }
+        // Send to Gemini with implicit context injection if needed.
+        this.sendToGemini(msg.payload);
+      } else if (msg.eventType === 'raw' && msg.payload) {
+        if (msg.id) {
+            this.requestMap.set(msg.id, msg.returnTo || msg.from);
+        }
         this.sendToGemini(msg.payload);
       }
     } catch (e) {
@@ -106,13 +115,44 @@ export class GeminiAdapter {
     try {
       const parsed = JSON.parse(line);
       
+      // Attempt to extract text to check for delegation
+      let textContent = '';
+      if (parsed.message && parsed.message.content) {
+          const content = parsed.message.content;
+          textContent = typeof content === 'string' ? content : (Array.isArray(content) ? content.map((c:any) => c.text).join('') : JSON.stringify(content));
+      } else if (parsed.result) {
+          textContent = typeof parsed.result === 'string' ? parsed.result : JSON.stringify(parsed.result);
+      }
+
+      let to = 'lead';
+      let eventType = parsed.type || 'gemini_event';
+      let payload = parsed;
+
+      // Check if this is an explicit delegation
+      const match = textContent.match(/^@(\w+)\s+(.*)$/);
+      if (match) {
+          to = match[1];
+          eventType = 'delegate';
+          payload = match[2];
+          console.log(`[GeminiAdapter] Intercepted delegation to ${to}`);
+      } else {
+          // Default to the first mapped requester (like Claude adapter)
+          if (this.requestMap.size > 0) {
+              to = Array.from(this.requestMap.values())[0];
+              if (parsed.type === 'result' || parsed.type === 'finish') {
+                  this.requestMap.clear();
+              }
+          }
+      }
+
       const hubMsg = {
         id: randomUUID(),
         from: this.agentId,
-        to: this.currentRequester, 
-        eventType: parsed.type || 'gemini_event',
+        to: to,
+        eventType: eventType,
+        returnTo: this.agentId,
         timestamp: Date.now(),
-        payload: parsed
+        payload: payload
       };
 
       if (this.hubWs && this.hubWs.readyState === WebSocket.OPEN) {
