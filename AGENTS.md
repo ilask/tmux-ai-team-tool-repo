@@ -35,3 +35,4 @@ It contains crucial knowledge gathered from trial-and-error regarding:
 - "continue" your task as long as possible.
 - Consult codex in English after you make some concrete progress.
 - After codex review, you criticize that review result (if it's overly pedantic or incorrect for the context), and you MUST continue your tasks autonomously without unnecessarily stopping for user confirmation unless blocked.
+- ALWAYS remember to commit your changes using git (`git commit`) before replying to the user or whenever a logical chunk of work is done.
