@@ -79,3 +79,20 @@
     *   `AGENTS.md`
     *   `docs/codex_interaction_guide.md`
     *   `docs/WORKLOG.md`
+## 2026/02/21 13:02:06 (JST)
+*   **目的:**
+    *   Phase 1 Node.js 環境の `package.json` / `tsconfig.json` の設定レビュー（Node 20+ ESM / TS module resolution / 必須devDependencies）。
+*   **変更ファイル:**
+    *   `docs/WORKLOG.md` (追記)
+*   **実行コマンド:**
+    *   `rg --files | rg "^(README\.md|docs/PROJECT_SPEC\.md|docs/RUNBOOK\.md|docs/WORKLOG\.md)$"`
+    *   `Get-Content README.md -TotalCount 120`
+    *   `Get-Content docs/PROJECT_SPEC.md -TotalCount 180`
+    *   `Get-Content docs/WORKLOG.md -Tail 120`
+    *   `Get-Content docs/RUNBOOK.md -TotalCount 180` (not found)
+    *   `git status --short`
+*   **結果:**
+    *   開始前チェックを実施し、`docs/RUNBOOK.md` は未作成であることを確認。
+    *   設定レビュー観点（ESM, NodeNext, CLI配布設定, ESLint/TS連携, テスト型チェック分離）を整理し、ユーザー返答準備完了。
+*   **出力ファイルパス:**
+    *   `docs/WORKLOG.md`
