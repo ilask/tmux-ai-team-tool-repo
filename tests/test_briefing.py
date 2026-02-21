@@ -64,14 +64,14 @@ def test_maybe_paste_briefing_pastes_for_codex(monkeypatch) -> None:
     assert pasted == [("%1", "briefing text", True)]
 
 
-def test_maybe_paste_briefing_skips_non_codex(monkeypatch) -> None:
+def test_maybe_paste_briefing_applies_to_all_agents(monkeypatch) -> None:
     pasted: list[tuple[str, str, bool]] = []
     monkeypatch.setattr(cli, "_load_session_briefing_text", lambda _s: "briefing text")
     monkeypatch.setattr(cli, "paste_text", lambda pane, txt, enter=True: pasted.append((pane, txt, enter)))
 
     cli._maybe_paste_briefing(session="demo", pane_id="%1", command="claude")
 
-    assert pasted == []
+    assert pasted == [("%1", "briefing text", True)]
 
 
 def test_cmd_start_with_briefing_installs_session_briefing(monkeypatch) -> None:

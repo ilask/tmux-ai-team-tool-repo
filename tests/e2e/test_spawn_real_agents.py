@@ -17,6 +17,7 @@ def test_spawn_real_codex_claude_agent_headless(
             real_agent_commands["codex"],
             real_agent_commands["claude"],
             real_agent_commands["agent"],
+            real_agent_commands["gemini"],
         ]
     )
 
@@ -35,6 +36,8 @@ def test_spawn_real_codex_claude_agent_headless(
                 f"claude={real_agent_commands['claude']}",
                 "--worker",
                 f"agent={real_agent_commands['agent']}",
+                "--worker",
+                f"gemini={real_agent_commands['gemini']}",
             ],
             timeout=60,
         )
@@ -45,8 +48,9 @@ def test_spawn_real_codex_claude_agent_headless(
         codex_out = wait_capture_non_empty(session, "codex")
         claude_out = wait_capture_non_empty(session, "claude")
         agent_out = wait_capture_non_empty(session, "agent")
+        gemini_out = wait_capture_non_empty(session, "gemini")
 
-        for pane_name, out in (("codex", codex_out), ("claude", claude_out), ("agent", agent_out)):
+        for pane_name, out in (("codex", codex_out), ("claude", claude_out), ("agent", agent_out), ("gemini", gemini_out)):
             low = out.lower()
             assert "command not found" not in low, f"{pane_name} appears missing:\n{out}"
             assert "not recognized as" not in low, f"{pane_name} appears missing:\n{out}"

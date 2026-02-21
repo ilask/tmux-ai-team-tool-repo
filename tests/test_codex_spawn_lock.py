@@ -27,6 +27,12 @@ def _codex_args(*, name: str):
 
 
 def test_cmd_codex_parallel_calls_allocate_distinct_ids(monkeypatch) -> None:
+    try:
+        import fcntl
+    except ImportError:
+        import pytest
+        pytest.skip("fcntl not available on this platform (e.g. Windows), lock is a no-op")
+
     # Purpose: concurrent codex spawns should serialize ID allocation to avoid duplicate codex:1.
     monkeypatch.setattr(cli, "_resolve_session", lambda _s: "demo")
 

@@ -98,6 +98,8 @@ def _agent_kind_from_pane_title(title: str) -> Optional[str]:
         return "agent"
     if low.startswith("cursor"):
         return "cursor"
+    if low.startswith("gemini"):
+        return "gemini"
     return None
 
 
@@ -366,7 +368,7 @@ def _create_briefing_file(*, session: str, cwd: str) -> str:
     text = (
         "AITEAM SESSION BRIEFING (ephemeral)\n"
         "\n"
-        "This text is pasted into each new Codex pane in this tmux session.\n"
+        "This text is pasted into each new pane in this tmux session.\n"
         "It is deleted automatically when the tmux session closes.\n"
         "\n"
         f"Session: {session}\n"
@@ -429,8 +431,6 @@ def _is_codex_command(command: str) -> bool:
 
 
 def _maybe_paste_briefing(*, session: str, pane_id: str, command: str) -> None:
-    if not _is_codex_command(command):
-        return
     text = _load_session_briefing_text(session)
     if not text:
         return
@@ -717,12 +717,13 @@ def cmd_start(args: argparse.Namespace) -> int:
     """Create a tmux session with a single *main* agent pane.
 
     This is a convenience for WSL/terminal workflows where you want:
-      - 1x main agent (Claude Code, Cursor CLI, or Codex)
+      - 1x main agent (Claude Code, Cursor CLI, Gemini CLI, or Codex)
       - spawn Codex panes later via `aiteam codex ...`
 
     Examples:
       aiteam start --main claude --attach
       aiteam start --main cursor --attach
+      aiteam start --main gemini --attach
       aiteam start --main codex --attach
       aiteam start --main custom --exec "agent" --title cursor --attach
     """
@@ -743,6 +744,11 @@ def cmd_start(args: argparse.Namespace) -> int:
             cmd = "agent"
         if title is None:
             title = "cursor"
+    elif main == "gemini":
+        if cmd is None:
+            cmd = "gemini"
+        if title is None:
+            title = "gemini"
     elif main == "codex":
         if cmd is None:
             cmd = _DEFAULT_CODEX_COMMAND
@@ -1669,7 +1675,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument(
         "--briefing",
         action="store_true",
-        help="Open an editor to create an ephemeral session briefing (pasted into new Codex panes).",
+        default=True,
+        help="Open an editor to create an ephemeral session briefing (pasted into new panes). Default is ON.",
+    )
+    sp.add_argument(
+        "--no-briefing",
+        dest="briefing",
+        action="store_false",
+        help="Disable the ephemeral session briefing.",
     )
     sp.add_argument("--layout", choices=["vertical", "horizontal", "tiled"], default="vertical",
                     help="Pane split layout for 2 agents. For 3+ agents, layout becomes tiled. (default: vertical)")
@@ -1678,7 +1691,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--attach", action="store_true", help="Attach after spawning")
     sp.set_defaults(func=cmd_spawn)
 
-    sp = sub.add_parser("start", help="Create a session with a single main agent pane (Claude/Cursor/Codex).")
+    sp = sub.add_parser("start", help="Create a session with a single main agent pane (Claude/Cursor/Gemini/Codex).")
     sp.add_argument(
         "--session",
         default=None,
@@ -1688,11 +1701,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument(
         "--briefing",
         action="store_true",
-        help="Open an editor to create an ephemeral session briefing (pasted into new Codex panes).",
+        default=True,
+        help="Open an editor to create an ephemeral session briefing (pasted into new panes). Default is ON.",
     )
-    sp.add_argument("--main", choices=["claude", "cursor", "codex", "custom"], default="claude", help="Which main agent to start (default: claude)")
+    sp.add_argument(
+        "--no-briefing",
+        dest="briefing",
+        action="store_false",
+        help="Disable the ephemeral session briefing.",
+    )
+    sp.add_argument("--main", choices=["claude", "cursor", "gemini", "codex", "custom"], default="claude", help="Which main agent to start (default: claude)")
     sp.add_argument("--exec", dest="command", default=None, help="Command to start the main agent (overrides the default for --main)")
-    sp.add_argument("--title", default=None, help="Pane title for the main agent (default: claude/cursor/codex/main)")
+    sp.add_argument("--title", default=None, help="Pane title for the main agent (default: claude/cursor/gemini/codex/main)")
     sp.add_argument("--force", action="store_true", help="Replace session if it already exists")
     sp.add_argument("--attach", action="store_true", help="Attach after starting")
     sp.set_defaults(func=cmd_start)

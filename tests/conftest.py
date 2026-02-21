@@ -136,6 +136,7 @@ def real_agent_commands() -> dict[str, str]:
         "codex": (os.environ.get("AITEAM_E2E_CODEX_CMD") or "codex --help").strip(),
         "claude": (os.environ.get("AITEAM_E2E_CLAUDE_CMD") or "claude --help").strip(),
         "agent": (os.environ.get("AITEAM_E2E_AGENT_CMD") or "agent --help").strip(),
+        "gemini": (os.environ.get("AITEAM_E2E_GEMINI_CMD") or "gemini --help").strip(),
     }
 
 

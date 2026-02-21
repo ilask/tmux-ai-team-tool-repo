@@ -9,6 +9,7 @@ def test_agent_kind_from_pane_title_detects_supported_agents() -> None:
     assert cli._agent_kind_from_pane_title("claude") == "claude"
     assert cli._agent_kind_from_pane_title("agent") == "agent"
     assert cli._agent_kind_from_pane_title("cursor") == "cursor"
+    assert cli._agent_kind_from_pane_title("gemini") == "gemini"
     assert cli._agent_kind_from_pane_title("misc-pane") is None
 
 

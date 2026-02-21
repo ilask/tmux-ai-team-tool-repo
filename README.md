@@ -4,7 +4,7 @@ A tiny CLI that makes **tmux-based “agent collaboration”** easier — especi
 
 It’s designed for workflows like:
 
-- Pane A: **one main agent** (Claude Code, Cursor CLI, *or* Codex CLI)
+- Pane A: **one main agent** (Claude Code, Cursor CLI, Gemini CLI, *or* Codex CLI)
 - Pane B/C/D...: multiple **Codex CLI** panes (implement / test / refactor / error-analysis)
 
 …and it reduces the annoying parts (session setup, pane naming, sending prompts, capturing output, quick handoffs, and optional push/relay).
@@ -13,7 +13,7 @@ It’s designed for workflows like:
 
 - **tmux** installed and available in `PATH`
 - Python **3.9+**
-- Any “agent CLI” commands you want to run (examples: `claude`, `agent` (Cursor CLI), `codex`)
+- Any “agent CLI” commands you want to run (examples: `claude`, `agent` (Cursor CLI), `gemini`, `codex`)
 
 On WSL/Ubuntu:
 
@@ -43,7 +43,7 @@ You’ll get the `aiteam` command.
 
 ## Quickstart (WSL)
 
-### 0) Start a session with **one main agent** (Claude, Cursor, or Codex)
+### 0) Start a session with **one main agent** (Claude, Cursor, Gemini, or Codex)
 
 If you omit `--session`, `aiteam` auto-generates one:
 
@@ -68,7 +68,7 @@ sandbox_mode = "danger-full-access"
 
 ### Session Briefing (AGENTS.md-Style, Ephemeral)
 
-If you want a *session-only* briefing pasted into each new Codex pane, use `--briefing` on `start`/`spawn`.
+If you want a *session-only* briefing pasted into each new pane (including the main agent and Codex panes), use `--briefing` on `start`/`spawn`.
 It opens your editor (`$AITEAM_EDITOR` or `$EDITOR`) and the file is deleted automatically when the tmux session closes.
 
 Claude Code as main:
@@ -84,6 +84,12 @@ aiteam start --cwd /path/to/project --main cursor --attach
 
 # or:
 aiteam start --cwd /path/to/project --main custom --title cursor --exec "agent" --attach
+```
+
+Gemini CLI as main:
+
+```bash
+aiteam start --cwd /path/to/project --main gemini --attach
 ```
 
 Codex as main:
@@ -206,7 +212,7 @@ AITEAM_E2E_AGENT_CMD="agent --help"
 
 Every long option has a strict short alias based on its initial letter (no collisions allowed per subcommand). Check each command's `--help`.
 
-- `start`  : create a tmux session and start a single main agent pane (Claude/Cursor/Codex)
+- `start`  : create a tmux session and start a single main agent pane (Claude/Cursor/Gemini/Codex)
 - `spawn`  : create a tmux session, split panes, and start agent commands
 - `add`    : add a new agent pane to an existing session
 - `codex`  : start a new Codex instance pane (multiple supported; id+name)
@@ -224,7 +230,7 @@ Every long option has a strict short alias based on its initial letter (no colli
 - basic quick commands for the main agent
 - absolute path to `README.md`
 
-When run inside a tmux pane titled as an aiteam agent (`codex#...`, `codex`, `claude`, `agent`, `cursor`),
+When run inside a tmux pane titled as an aiteam agent (`codex#...`, `codex`, `claude`, `agent`, `cursor`, `gemini`),
 help output also shows a short status line indicating the detected agent context.
 
 ## Auto error-analyzer Codex
