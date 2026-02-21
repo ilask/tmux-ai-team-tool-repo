@@ -1,5 +1,29 @@
 # aiteam Worklog
 
+## 2026/02/21 16:50:35 (JST)
+*   **目的:** 
+    *   ユーザーの指摘に基づき、CLI（`aiteam`コマンド）実行時の無駄なINFO/DEBUG出力（Adapterの起動ログや生のJSON-RPCルーティングログなど）を消去し、画面をクリーンに保つ。
+*   **変更ファイル:** 
+    *   `src/index.ts` (修正)
+    *   `src/adapters/codex.ts` (修正)
+    *   `src/adapters/claude.ts` (修正)
+    *   `src/adapters/gemini.ts` (修正)
+    *   `docs/WORKLOG.md` (追記)
+*   **実行コマンド:**
+    *   `Get-ChildItem -Path src -Recurse -File -Filter *.ts | ForEach-Object { ... }` (正規表現による一括コメントアウト置換)
+    *   `pnpm run build`
+    *   `git commit -m "fix(cli): remove verbose adapter debug output"`
+    *   `git push origin master`
+*   **結果:**
+    *   各AdapterおよびHubの起動時やルーティング時に出力されていた `[CodexAdapter] Connected...` や `Routing from...` といった内部ログをすべてコメントアウトし、不要な標準出力を抑制した。
+    *   これにより、ユーザーが `aiteam` を実行した際、エージェントの純粋な返答（思考プロセスやメッセージ）のみがターミナルに表示されるようになり、可読性が大幅に向上した。
+*   **出力ファイルパス:**
+    *   `src/index.ts`
+    *   `src/adapters/codex.ts`
+    *   `src/adapters/claude.ts`
+    *   `src/adapters/gemini.ts`
+    *   `docs/WORKLOG.md`
+
 ## 2026/02/21 16:36:45 (JST)
 *   **目的:** 
     *   Codexのレビュー結果に基づき、Codex Adapter における `thread/start` ルーティングの非同期処理やキューの競合バグを修正する。
