@@ -1,5 +1,21 @@
 # aiteam Worklog
 
+## 2026/02/21 13:42:04 (JST)
+*   **目的:** 
+    *   Phase 4: Headless Architecture の E2E テスト実装。
+*   **変更ファイル:** 
+    *   `src/__tests__/e2e/headless-workflow.spec.ts` (新規作成)
+    *   `docs/WORKLOG.md` (追記)
+*   **実行コマンド:**
+    *   `pnpm run test src/__tests__/e2e/headless-workflow.spec.ts`
+*   **結果:**
+    *   `node dist/cli.js` を別プロセスで起動し、すべてのエージェントが接続されるのを待機後、標準入力経由でCodexにメッセージをルーティングし、レスポンスが標準出力に返ってくることを確認。
+    *   `exit` コマンドにより全てのプロセスがクリーンにシャットダウンされることを確認。
+    *   VitestのE2Eテストが正常に通過。これにて全フェーズの要件を満たした。
+*   **出力ファイルパス:**
+    *   `src/__tests__/e2e/headless-workflow.spec.ts`
+    *   `docs/WORKLOG.md`
+
 ## 2026/02/21 13:38:47 (JST)
 *   **目的:** 
     *   CodexのPhase 3実装レビューを反映し、CLIエントリーポイントの脆弱性（`ERR_USE_AFTER_CLOSE`、不正なシャットダウン、プロトコル不一致）を修正する。
