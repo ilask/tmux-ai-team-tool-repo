@@ -84,4 +84,68 @@ describe('CLI output filter', () => {
 
     expect(text).toBe('Codex final answer.');
   });
+
+  it('extracts codex/event agent_message text', () => {
+    const formatted = formatCliMessage({
+      from: 'codex',
+      payload: {
+        jsonrpc: '2.0',
+        method: 'codex/event/agent_message',
+        params: {
+          id: 'turn_123',
+          msg: {
+            type: 'agent_message',
+            message: 'HELLO from codex/event'
+          }
+        }
+      }
+    });
+
+    expect(formatted).toEqual({
+      from: 'codex',
+      text: 'HELLO from codex/event'
+    });
+  });
+
+  it('extracts assistant text from item/completed notification', () => {
+    const formatted = formatCliMessage({
+      from: 'codex',
+      payload: {
+        jsonrpc: '2.0',
+        method: 'item/completed',
+        params: {
+          threadId: 'thread_123',
+          turnId: 'turn_123',
+          item: {
+            type: 'agentMessage',
+            id: 'msg_123',
+            text: 'HELLO from item/completed'
+          }
+        }
+      }
+    });
+
+    expect(formatted).toEqual({
+      from: 'codex',
+      text: 'HELLO from item/completed'
+    });
+  });
+
+  it('ignores codex/event warning notifications', () => {
+    const formatted = formatCliMessage({
+      from: 'codex',
+      payload: {
+        jsonrpc: '2.0',
+        method: 'codex/event/warning',
+        params: {
+          msg: {
+            type: 'warning',
+            message: 'This is not conversational output.'
+          }
+        }
+      }
+    });
+
+    expect(formatted).toBeNull();
+  });
 });

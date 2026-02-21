@@ -29,6 +29,13 @@ function normalizeText(text: string): string | null {
   return text.trim().length > 0 ? text : null;
 }
 
+function normalizeType(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  return value.replace(/[^a-z]/gi, '').toLowerCase();
+}
+
 function extractTextFromContent(content: unknown): string {
   if (typeof content === 'string') {
     return content;
@@ -58,37 +65,53 @@ function extractTextFromContent(content: unknown): string {
     .join('');
 }
 
-function extractTextFromTurn(turn: unknown): string {
-  const turnRecord = asRecord(turn);
-  if (!turnRecord || !Array.isArray(turnRecord.output)) {
+function extractTextFromItem(item: unknown): string {
+  const itemRecord = asRecord(item);
+  if (!itemRecord) {
     return '';
   }
 
-  return turnRecord.output
-    .map((outputItem) => {
-      const itemRecord = asRecord(outputItem);
-      if (!itemRecord) {
-        return '';
-      }
+  const role =
+    typeof itemRecord.role === 'string' ? itemRecord.role.toLowerCase() : null;
+  const itemType = normalizeType(itemRecord.type);
+  const isAssistantMessage =
+    role === 'assistant' || itemType === 'agentmessage';
 
-      const role = typeof itemRecord.role === 'string' ? itemRecord.role : null;
-      if (role && role !== 'assistant') {
-        return '';
-      }
+  if (!isAssistantMessage) {
+    return '';
+  }
 
-      const contentText = extractTextFromContent(itemRecord.content);
-      if (contentText) {
-        return contentText;
-      }
-      if (typeof itemRecord.text === 'string') {
-        return itemRecord.text;
-      }
-      if (typeof itemRecord.output_text === 'string') {
-        return itemRecord.output_text;
-      }
-      return '';
-    })
-    .join('');
+  const contentText = extractTextFromContent(itemRecord.content);
+  if (contentText) {
+    return contentText;
+  }
+  if (typeof itemRecord.text === 'string') {
+    return itemRecord.text;
+  }
+  if (typeof itemRecord.message === 'string') {
+    return itemRecord.message;
+  }
+  if (typeof itemRecord.output_text === 'string') {
+    return itemRecord.output_text;
+  }
+  return '';
+}
+
+function extractTextFromTurn(turn: unknown): string {
+  const turnRecord = asRecord(turn);
+  if (!turnRecord) {
+    return '';
+  }
+
+  const outputTexts: string[] = [];
+  if (Array.isArray(turnRecord.output)) {
+    outputTexts.push(...turnRecord.output.map((outputItem) => extractTextFromItem(outputItem)));
+  }
+  if (Array.isArray(turnRecord.items)) {
+    outputTexts.push(...turnRecord.items.map((turnItem) => extractTextFromItem(turnItem)));
+  }
+
+  return outputTexts.join('');
 }
 
 function extractTextFromEvent(event: unknown): string {
@@ -100,16 +123,67 @@ function extractTextFromEvent(event: unknown): string {
   if (typeof eventRecord.text === 'string') {
     return eventRecord.text;
   }
+  if (typeof eventRecord.message === 'string') {
+    return eventRecord.message;
+  }
   if (typeof eventRecord.output_text === 'string') {
     return eventRecord.output_text;
+  }
+  if (typeof eventRecord.last_agent_message === 'string') {
+    return eventRecord.last_agent_message;
   }
 
   const itemRecord = asRecord(eventRecord.item);
   if (itemRecord) {
-    return extractTextFromTurn({ output: [itemRecord] });
+    return extractTextFromItem(itemRecord);
   }
 
   return extractTextFromContent(eventRecord.content);
+}
+
+function extractTextFromCodexEvent(payloadRecord: JsonRecord): string {
+  const method =
+    typeof payloadRecord.method === 'string' ? payloadRecord.method : null;
+  if (!method || !method.startsWith('codex/event/')) {
+    return '';
+  }
+
+  const paramsRecord = asRecord(payloadRecord.params);
+  if (!paramsRecord) {
+    return '';
+  }
+
+  const msgRecord =
+    asRecord(paramsRecord.msg) ??
+    asRecord(paramsRecord.event) ??
+    asRecord(paramsRecord.message);
+  if (!msgRecord) {
+    return '';
+  }
+
+  const eventType = typeof msgRecord.type === 'string' ? msgRecord.type : null;
+  if (method === 'codex/event/agent_message' || eventType === 'agent_message') {
+    if (typeof msgRecord.message === 'string') {
+      return msgRecord.message;
+    }
+    return extractTextFromItem(msgRecord.item);
+  }
+
+  if (method === 'codex/event/item_completed' || eventType === 'item_completed') {
+    return extractTextFromItem(msgRecord.item);
+  }
+
+  if (
+    method === 'codex/event/task_complete' ||
+    eventType === 'task_complete' ||
+    eventType === 'turn_complete'
+  ) {
+    if (typeof msgRecord.last_agent_message === 'string') {
+      return msgRecord.last_agent_message;
+    }
+  }
+
+  return '';
 }
 
 export function extractConversationalText(payload: unknown): string | null {
@@ -129,11 +203,23 @@ export function extractConversationalText(payload: unknown): string | null {
     return null;
   }
 
+  const codexEventText = extractTextFromCodexEvent(payloadRecord);
+  if (normalizeText(codexEventText)) {
+    return codexEventText;
+  }
+
+  if (typeof payloadRecord.message === 'string') {
+    return normalizeText(payloadRecord.message);
+  }
+
   const messageRecord = asRecord(payloadRecord.message);
   if (messageRecord) {
     const messageText = extractTextFromContent(messageRecord.content);
     if (normalizeText(messageText)) {
       return messageText;
+    }
+    if (typeof messageRecord.message === 'string') {
+      return normalizeText(messageRecord.message);
     }
   }
 
@@ -163,6 +249,11 @@ export function extractConversationalText(payload: unknown): string | null {
 
   const paramsRecord = asRecord(payloadRecord.params);
   if (paramsRecord) {
+    const itemText = extractTextFromItem(paramsRecord.item);
+    if (normalizeText(itemText)) {
+      return itemText;
+    }
+
     const turnText = extractTextFromTurn(paramsRecord.turn);
     if (normalizeText(turnText)) {
       return turnText;

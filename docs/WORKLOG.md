@@ -45,3 +45,32 @@
   * `src/__tests__/cli-output-filter.spec.ts`
   * `docs/WORKLOG.md`
   * `docs/20260221_WORKLOG_1937.md`
+
+## 2026/02/21 20:04:47 (JST)
+* **目的:**
+  * `src/cli.ts` の `extractConversationalText` を修正し、実際の Codex App Server 通知（`codex/event/*`）から会話テキストを抽出できるようにする。
+  * `codex/event/agent_message` と v2 `item/completed`（`agentMessage`）を会話として表示し、`warning` 等の非会話イベントは表示しないことをテストで保証する。
+* **変更ファイル:**
+  * `src/cli.ts` (修正)
+  * `src/__tests__/cli-output-filter.spec.ts` (修正)
+  * `docs/WORKLOG.md` (追記)
+* **実行コマンド:**
+  * `Get-Content README.md -TotalCount 200`
+  * `Get-Content docs/PROJECT_SPEC.md -TotalCount 220`
+  * `Get-Content docs/WORKLOG.md -Tail 80`
+  * `codex app-server generate-ts --out tmp/protocol-ts --experimental`
+  * `codex app-server generate-json-schema --out tmp/protocol-schema --experimental`
+  * `node -e \"...\"` (Codex app-server を直接起動し、`initialize -> thread/start -> turn/start` の実通知を収集)
+  * `pnpm run test src/__tests__/cli-output-filter.spec.ts`
+  * `pnpm run typecheck`
+  * `pnpm run build`
+* **結果（行数・件数）:**
+  * 実通知で確認した `method: \"codex/event/agent_message\"` + `params.msg.message` を新たに抽出対象へ追加。
+  * `extractTextFromItem` を導入し、`AgentMessage/agentMessage` と `role: assistant` の項目だけを抽出するように変更。
+  * `extractTextFromTurn` を `turn.output` に加えて `turn.items`（v2）にも対応。
+  * `item/completed` の `params.item.type = agentMessage` から会話テキストを抽出可能にした。
+  * 回帰テストを 3 件追加し、`src/__tests__/cli-output-filter.spec.ts` は **8 tests passed**。
+* **出力ファイルパス:**
+  * `src/cli.ts`
+  * `src/__tests__/cli-output-filter.spec.ts`
+  * `docs/WORKLOG.md`
