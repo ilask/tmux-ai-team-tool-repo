@@ -12,7 +12,8 @@ export class ClaudeAdapter {
   private isStopping: boolean = false;
   
   // Track requests for routing responses back
-  private currentRequester: string = 'lead';
+  // Map of messageId -> originating agent
+  private requestMap: Map<string, string> = new Map();
 
   constructor(hubUrl: string, agentId: string = 'claude') {
     this.hubUrl = hubUrl;
@@ -96,8 +97,11 @@ export class ClaudeAdapter {
   private handleHubMessage(data: string) {
     try {
       const msg = JSON.parse(data);
-      if (msg.eventType === 'prompt' && msg.payload) {
-        this.currentRequester = msg.from; // Remember who asked
+      if ((msg.eventType === 'prompt' || msg.eventType === 'delegate') && msg.payload) {
+        if (msg.id) {
+            this.requestMap.set(msg.id, msg.returnTo || msg.from);
+        }
+        // Send to Claude with hidden system prompt instructions if it's the first message
         this.sendToClaude({
             type: "user",
             message: {
@@ -106,7 +110,9 @@ export class ClaudeAdapter {
             }
         });
       } else if (msg.eventType === 'raw' && msg.payload) {
-        this.currentRequester = msg.from;
+        if (msg.id) {
+            this.requestMap.set(msg.id, msg.returnTo || msg.from);
+        }
         this.sendToClaude(msg.payload);
       }
     } catch (e) {
@@ -118,13 +124,49 @@ export class ClaudeAdapter {
     try {
       const parsed = JSON.parse(line);
       
+      // Attempt to extract text to check for delegation
+      let textContent = '';
+      if (parsed.type === 'assistant' && parsed.message && parsed.message.content) {
+          const content = parsed.message.content;
+          textContent = Array.isArray(content) ? content.map((c:any) => c.text).join('') : content;
+      }
+
+      let to = 'lead';
+      let eventType = parsed.type || 'claude_event';
+      let payload = parsed;
+
+      // Check if this is an explicit delegation
+      const match = textContent.match(/^@(\w+)\s+(.*)$/);
+      if (match) {
+          to = match[1];
+          eventType = 'delegate';
+          payload = match[2];
+          console.log(`[ClaudeAdapter] Intercepted delegation to ${to}`);
+      } else {
+          // If not a delegation, try to map back to the original requester.
+          // Since Claude CLI stream-json doesn't natively return our correlation IDs,
+          // we fallback to 'lead' or the most recent requester if we want to be hacky,
+          // but for true multi-agent, we need the CLI to echo back IDs.
+          // For now, if we have exactly one requester mapped, we use it.
+          // Otherwise default to lead.
+          if (this.requestMap.size > 0) {
+              // Just grab the first one for this basic implementation
+              to = Array.from(this.requestMap.values())[0];
+              // If it's a final result, clean up the map
+              if (parsed.type === 'result') {
+                  this.requestMap.clear();
+              }
+          }
+      }
+
       const hubMsg = {
         id: randomUUID(),
         from: this.agentId,
-        to: this.currentRequester, 
-        eventType: parsed.type || 'claude_event',
+        to: to,
+        eventType: eventType,
+        returnTo: this.agentId, // Tell the delegatee to reply to Claude
         timestamp: Date.now(),
-        payload: parsed
+        payload: payload
       };
 
       if (this.hubWs && this.hubWs.readyState === WebSocket.OPEN) {

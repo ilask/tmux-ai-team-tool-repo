@@ -8,6 +8,9 @@ const MessageSchema = z.object({
   to: z.string(),
   eventType: z.string(),
   timestamp: z.number().optional(),
+  threadId: z.string().optional(),
+  inReplyTo: z.string().optional(),
+  returnTo: z.string().optional(),
   payload: z.any()
 });
 
