@@ -369,3 +369,23 @@
     *   `AGENTS.md`
     *   `docs/codex_interaction_guide.md`
     *   `docs/WORKLOG.md`
+
+## 2026/02/21 15:28:41 (JST)
+*   **目的:**
+    *   Phase 5 Inter-Agent Router 向け E2E Test Task Specification（GROWI + ruri v3 Semantic Search）のシナリオレビュー。
+    *   ハンドオフ時のコンテキスト欠落リスク、`@agent_name` ルーティング制約下のプロンプト注入方針、密結合型アーキテクチャの立証観点を整理。
+*   **変更ファイル:**
+    *   `docs/WORKLOG.md` (追記)
+*   **実行コマンド:**
+    *   `Get-Content README.md -TotalCount 250`
+    *   `Get-Content docs/PROJECT_SPEC.md -TotalCount 250`
+    *   `Get-Content docs/RUNBOOK.md -TotalCount 250` (not found)
+    *   `Get-Content docs/WORKLOG.md -Tail 180`
+    *   `(Get-Content docs/WORKLOG.md).Count`
+*   **結果:**
+    *   受け渡しで失われやすい情報（対象ブランチ/コミット、依存関係、テスト条件、レビュー観点）を必須メタデータ化する方針を整理。
+    *   アダプター注入プロンプトは「ルータ規約」と「役割ガードレール」を分離し、`@agent_name` を唯一の配送トリガーとして扱う設計を提案可能な状態に整理。
+    *   旧 tmux 方式との差分実証には、単なる成功率ではなく Ordering/ACK/NACK/Retry/Crash Recovery/Token 使用量まで含む比較指標が必要と結論。
+    *   `docs/RUNBOOK.md` が欠落していることを確認。
+*   **出力ファイルパス:**
+    *   `docs/WORKLOG.md`
