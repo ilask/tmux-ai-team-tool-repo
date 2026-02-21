@@ -1,5 +1,26 @@
 # aiteam Worklog
 
+## 2026/02/21 13:29:48 (JST)
+*   **目的:** 
+    *   Phase 2: Claude Adapter の実装。
+    *   Claude Codeをヘッドレス・ストリームモード (`--print --input-format=stream-json`) で起動し、Hubと連携させる。
+*   **変更ファイル:** 
+    *   `src/adapters/claude.ts` (新規作成)
+    *   `src/__tests__/adapters/claude.spec.ts` (新規作成)
+    *   `docs/WORKLOG.md` (追記)
+    *   `test-claude-stdio.ts` (新規作成・検証用)
+*   **実行コマンド:**
+    *   `npx tsx test-claude-stdio.ts`
+    *   `pnpm run test src/__tests__/adapters/claude.spec.ts`
+*   **結果:**
+    *   `claude --print --verbose --input-format=stream-json --output-format=stream-json` として起動することで、JSONLストリームでの対話が可能であることを確認。
+    *   Hub経由で受け取ったプロンプトをClaudeに渡し、生成されたイベント（`assistant`, `result`など）を元の要求エージェントにルーティングするAdapterを実装。
+    *   Vitestによる実モデルAPI呼び出しテスト（タイムアウト15秒）が成功することを確認した。
+*   **出力ファイルパス:**
+    *   `src/adapters/claude.ts`
+    *   `src/__tests__/adapters/claude.spec.ts`
+    *   `docs/WORKLOG.md`
+
 ## 2026/02/21 13:26:13 (JST)
 *   **目的:** 
     *   CodexのPhase 2実装レビューを受け、CodexAdapterのライフサイクルとJSON-RPCハンドシェイクのバグを修正する。
