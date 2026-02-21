@@ -1,5 +1,29 @@
 # aiteam Worklog
 
+## 2026/02/21 16:36:45 (JST)
+*   **目的:** 
+    *   Codexのレビュー結果に基づき、Codex Adapter における `thread/start` ルーティングの非同期処理やキューの競合バグを修正する。
+    *   併せて、E2Eテストのアサーションの堅牢性を高める。
+*   **変更ファイル:** 
+    *   `src/adapters/codex.ts` (修正)
+    *   `src/__tests__/e2e/inter-agent.spec.ts` (修正)
+    *   `src/__tests__/e2e/headless-workflow.spec.ts` (修正)
+    *   `docs/WORKLOG.md` (追記)
+*   **実行コマンド:**
+    *   `pnpm run typecheck`
+    *   `pnpm run build`
+    *   `pnpm run test`
+*   **結果:**
+    *   `CodexAdapter` 内で `pendingThreadRequestId` を管理するように変更。これにより、複数のプロンプトが同時に送信された場合でも、複数スレッドの作成を防止して一つのスレッドにキューイングされるようになった。
+    *   スレッド作成が完了したのちにキューに溜まったプロンプトが順次 `turn/start` として送信されるようになり、エラー発生時 (`parsed.error`) にはキューがクリアされ、待機中のエージェントに正しくエラー通知がルーティングバックされるようになった。
+    *   `requestMap` のメモリリーク（成功時の early return による消し忘れ）を修正した。
+    *   E2Eテストにて `turn/start` のレスポンスだけでなく、正常な `turn/started` の非同期通知イベントまで待機し、エラー発生時はテストが Reject されるようにロバストな検証を追加した。
+*   **出力ファイルパス:**
+    *   `src/adapters/codex.ts`
+    *   `src/__tests__/e2e/inter-agent.spec.ts`
+    *   `src/__tests__/e2e/headless-workflow.spec.ts`
+    *   `docs/WORKLOG.md`
+
 ## 2026/02/21 16:25:59 (JST)
 *   **目的:** 
     *   プレーンテキストによるCodexへのタスク委譲ルーティング処理（`thread/start` -> `turn/start`）に関する、E2Eテスト実装およびアーキテクチャのCodexによるレビュー実施。

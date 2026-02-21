@@ -15,10 +15,11 @@ export class CodexAdapter {
   private isInitialized: boolean = false;
   private initMessageId: string | null = null;
   private currentThreadId: string | null = null;
+  private pendingThreadRequestId: string | null = null;
   
   // Track who requested what: RPC ID -> Originating Agent ID
   private requestMap: Map<string | number, string> = new Map();
-  private pendingPrompts: { id: string, from: string, text: string }[] = [];
+  private pendingPrompts: { from: string, returnTo?: string, text: string }[] = [];
 
   constructor(hubUrl: string, agentId: string = 'codex') {
     this.hubUrl = hubUrl;
@@ -118,20 +119,21 @@ export class CodexAdapter {
           // The user/agent sent a plain text prompt. We need to wrap it in a JSON-RPC turn/start.
           if (!this.currentThreadId) {
               // Need to create a thread first.
-              const threadRequestId = randomUUID();
-              this.requestMap.set(threadRequestId, msg.from);
-              this.pendingPrompts.push({ id: threadRequestId, from: msg.from, text: msg.payload });
+              this.pendingPrompts.push({ from: msg.from, returnTo: msg.returnTo, text: msg.payload });
               
-              this.sendToCodex({
-                  jsonrpc: "2.0",
-                  id: threadRequestId,
-                  method: "thread/start",
-                  params: {}
-              });
+              if (!this.pendingThreadRequestId) {
+                  this.pendingThreadRequestId = randomUUID();
+                  this.sendToCodex({
+                      jsonrpc: "2.0",
+                      id: this.pendingThreadRequestId,
+                      method: "thread/start",
+                      params: {}
+                  });
+              }
           } else {
               // Already have a thread, send turn/start
               const turnRequestId = randomUUID();
-              this.requestMap.set(turnRequestId, msg.from);
+              this.requestMap.set(turnRequestId, msg.returnTo || msg.from);
               this.sendToCodex({
                   jsonrpc: "2.0",
                   id: turnRequestId,
@@ -162,31 +164,48 @@ export class CodexAdapter {
           console.log('[CodexAdapter] Codex initialized successfully.');
         }
   
-        // Handle thread/start response
-        if (parsed.id !== undefined && parsed.result?.thread?.id) {
-            this.currentThreadId = parsed.result.thread.id;
-            
-            // Check if we have pending prompts that triggered this thread start
-            const pendingIndex = this.pendingPrompts.findIndex(p => p.id === parsed.id);
-            if (pendingIndex !== -1) {
-                const pending = this.pendingPrompts.splice(pendingIndex, 1)[0];
-                const turnRequestId = randomUUID();
-                this.requestMap.set(turnRequestId, pending.from);
-                this.sendToCodex({
-                    jsonrpc: "2.0",
-                    id: turnRequestId,
-                    method: "turn/start",
-                    params: {
-                        threadId: this.currentThreadId,
-                        input: [{ type: "text", text: pending.text }]
-                    }
-                });
-                // We do not route the raw thread/start response back to the user, as they just sent a plain prompt
-                return; 
-            }
-        }
-  
-        // Determine routing destination      let targetAgent = 'lead'; // fallback
+              // Handle thread/start response
+              if (this.pendingThreadRequestId && parsed.id === this.pendingThreadRequestId) {
+                  this.pendingThreadRequestId = null;
+                  
+                  if (parsed.result?.thread?.id) {
+                      this.currentThreadId = parsed.result.thread.id;
+                      
+                      // Process all pending prompts
+                      while (this.pendingPrompts.length > 0) {
+                          const pending = this.pendingPrompts.shift()!;
+                          const turnRequestId = randomUUID();
+                          this.requestMap.set(turnRequestId, pending.returnTo || pending.from);
+                          this.sendToCodex({
+                              jsonrpc: "2.0",
+                              id: turnRequestId,
+                              method: "turn/start",
+                              params: {
+                                  threadId: this.currentThreadId,
+                                  input: [{ type: "text", text: pending.text }]
+                              }
+                          });
+                      }
+                  } else if (parsed.error) {
+                      // Handle thread/start error by informing all waiters and clearing queue
+                      while (this.pendingPrompts.length > 0) {
+                          const pending = this.pendingPrompts.shift()!;
+                          if (this.hubWs && this.hubWs.readyState === WebSocket.OPEN) {
+                              this.hubWs.send(JSON.stringify({
+                                  id: randomUUID(),
+                                  from: this.agentId,
+                                  to: pending.returnTo || pending.from,
+                                  eventType: 'rpc_response',
+                                  timestamp: Date.now(),
+                                  payload: { error: parsed.error }
+                              }));
+                          }
+                      }
+                  }
+                  return; // Do not route the raw thread/start response back to any user
+              }  
+        // Determine routing destination
+      let targetAgent = 'lead'; // fallback
       
       if (parsed.id !== undefined && this.requestMap.has(parsed.id)) {
           targetAgent = this.requestMap.get(parsed.id)!;
@@ -211,7 +230,7 @@ export class CodexAdapter {
         this.hubWs.send(JSON.stringify(hubMsg));
       }
     } catch (e) {
-      console.error('[CodexAdapter] Invalid JSON from Codex:', line);
+      console.error('[CodexAdapter] Error in handleCodexMessage:', e, line);
     }
   }
 
