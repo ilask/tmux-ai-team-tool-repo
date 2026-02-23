@@ -248,3 +248,23 @@
   - 参考検証として `hub.spec.ts` は 1/1 pass。
 - 出力ファイルパス:
   - なし（件数集計）
+
+### 2026/02/23 12:35:25 (JST)
+- 目的:
+  - 旧 Python テストで未移植だった観点（help/入力耐性/失敗時ヒント）を TS/Vitest で補完する。
+- 変更ファイル:
+  - `src/__tests__/hub.spec.ts`
+  - `src/__tests__/e2e/cli-ux-resilience.spec.ts`
+  - `docs/WORKLOG.md`
+- 実行コマンド:
+  - `pnpm run build`
+  - `pnpm exec vitest run src/__tests__/hub.spec.ts src/__tests__/e2e/cli-ux-resilience.spec.ts`
+- 結果:
+  - `hub.spec.ts` に「宛先未接続時に Delivery failed を返し、warning 文言を出す」ケースを追加。
+  - 新規 `cli-ux-resilience.spec.ts` で以下を追加:
+    - 起動時の案内文言契約
+    - 無効入力時のヒント文言契約
+    - 不正入力連続後でも終了できる入力耐性
+  - 追加分を含む対象テストは `5/5 passed`。
+- 出力ファイルパス:
+  - なし（テスト追加）

@@ -51,4 +51,49 @@ describe('Central Hub WebSocket Server', () => {
     ws1.close();
     ws2.close();
   });
+
+  it('should return delivery-failed hint when target is offline', async () => {
+    const warnMessages: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown, ...rest: unknown[]) => {
+      warnMessages.push(String(message ?? ''));
+      if (rest.length > 0) {
+        warnMessages.push(rest.map((item) => String(item)).join(' '));
+      }
+    };
+
+    try {
+      const ws1 = new WebSocket(`ws://localhost:${PORT}`);
+      await new Promise((resolve) => ws1.on('open', resolve));
+      ws1.send(JSON.stringify({ type: 'identify', id: 'agent1' }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const received = new Promise<{ error: string; target: string; reason: string }>((resolve) => {
+        ws1.on('message', (data) => {
+          resolve(JSON.parse(data.toString()));
+        });
+      });
+
+      ws1.send(
+        JSON.stringify({
+          from: 'agent1',
+          to: 'offlineAgent',
+          eventType: 'chat',
+          payload: 'hello'
+        })
+      );
+
+      const result = await received;
+      expect(result).toEqual({
+        error: 'Delivery failed',
+        target: 'offlineAgent',
+        reason: 'Target offline'
+      });
+      expect(warnMessages.join('\n')).toContain('Target offlineAgent not connected.');
+
+      ws1.close();
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
 });
