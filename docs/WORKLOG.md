@@ -213,3 +213,20 @@
   - `docs/20260222_WORKLOG_0057.md`
   - `docs/20260222_WORKLOG_1524.md`
   - `docs/20260222_WORKLOG_2306.md`
+
+### 2026/02/23 12:25:58 (JST)
+- 目的:
+  - 現行 TS/Vitest ベースに合わない残存物を追加整理する。
+- 変更ファイル:
+  - 削除: `aiteam`, `codex_prompt.txt`, `codex_review_phase5.txt`
+  - 更新: `docs/WORKLOG.md`
+- 実行コマンド:
+  - `git rm aiteam codex_prompt.txt codex_review_phase5.txt`
+  - `rg -n "tmux_ai_team|python3 -m tmux_ai_team|codex_prompt\\.txt|codex_review_phase5\\.txt" README.md AGENTS.md docs package.json scripts src`
+  - `pnpm exec vitest run src/__tests__/hub.spec.ts`
+- 結果:
+  - Python エントリの旧ラッパー（`aiteam`）を削除。
+  - 一時検証メモ（`codex_prompt.txt`, `codex_review_phase5.txt`）を削除。
+  - 動作確認として `hub.spec.ts` は 1/1 pass。
+- 出力ファイルパス:
+  - なし（不要資産削除）

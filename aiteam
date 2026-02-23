@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# Convenience wrapper to run without installing.
-# Usage: ./aiteam <subcommand> ...
-
-set -euo pipefail
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export PYTHONPATH="${DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
-exec python3 -m tmux_ai_team "$@"
