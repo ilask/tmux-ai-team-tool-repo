@@ -1,6 +1,6 @@
 ﻿# WORKLOG (Summary)
 
-最終更新: 2026/02/23 07:42:59 (JST)
+最終更新: 2026/02/23 11:41:47 (JST)
 
 ## アーカイブ
 - 詳細ログ退避先: `docs/20260223_WORKLOG_0742.md` (402 lines)
@@ -70,7 +70,30 @@
 - 出力ファイルパス:
   - なし（Git 状態修復）
 
+### 2026/02/23 11:41:47 (JST)
+- 目的:
+  - ルート直下の作業ノート/生成物を整理し、日常運用で `git status` が見やすい状態に戻す。
+- 変更ファイル:
+  - `.gitignore`
+  - `docs/20260222_CODEX_IMPACT_SCOPE_GROWI.md`
+  - `docs/20260223_GROWI_SEMANTIC_SEARCH_REVIEW_MATRIX.md`
+  - `docs/WORKLOG.md`
+- 実行コマンド:
+  - `git status --short`
+  - `Get-ChildItem -Force`
+  - `Move-Item ... tmp/local-notes/`
+  - `Get-Content .gitignore`
+- 結果:
+  - ルート直下の untracked ノート類（`codex_review_*`, `codex-app-schema.json`, `typescript`）を `tmp/local-notes/` へ退避。
+  - `.gitignore` に `tmp/` と `nanobanana-output/` を追加し、生成物の再汚染を防止。
+  - 既存の設計メモ 2 件（`docs/20260222_CODEX_IMPACT_SCOPE_GROWI.md`, `docs/20260223_GROWI_SEMANTIC_SEARCH_REVIEW_MATRIX.md`）は docs として保持。
+- 出力ファイルパス:
+  - `tmp/local-notes/`
+  - `docs/20260222_CODEX_IMPACT_SCOPE_GROWI.md`
+  - `docs/20260223_GROWI_SEMANTIC_SEARCH_REVIEW_MATRIX.md`
+
 ## 参考コミット
 - `8b4f500` Stabilize Windows inter-agent E2E flows
 - `ba49c16` Add copy-paste E2E examples to README
 - `93e9b63` Stabilize Windows inter-agent E2E and add README scenarios (remote master)
+- `870a290` docs: rotate WORKLOG and archive details
