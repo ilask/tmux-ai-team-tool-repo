@@ -125,8 +125,16 @@ Runtime status snapshot:
 - Claude asks permission before command/tool execution:
   - Default adapter mode is `--permission-mode bypassPermissions`.
   - Override with `AITEAM_CLAUDE_PERMISSION_MODE` if needed.
+- Claude command execution on Windows hits `bash ... dofork ... 0xC0000142`:
+  - By default, aiteam disallows Claude `Bash` tool on Windows to avoid this failure while keeping other tools available.
+  - By default on Windows, command-like prompts sent to `@claude` are routed to `codex` (`AITEAM_CLAUDE_ROUTE_COMMANDS_TO_CODEX=1`) to avoid shell/cygpath failures.
+  - If you need Claude Bash explicitly, set `AITEAM_CLAUDE_ALLOW_BASH=1` (then environment-specific bash errors are your responsibility).
 - Gemini on Windows shows `AttachConsole failed`:
-  - Adapter runs Gemini with `-p` one-shot prompts and Windows Node entrypoint fallback to avoid `stdin`/PTY attach failures.
+  - Adapter runs Gemini with `-p` one-shot prompts and Windows Node entrypoint fallback.
+  - By default on Windows, command-like prompts sent to `@gemini` are routed to `codex` (`AITEAM_GEMINI_ROUTE_COMMANDS_TO_CODEX=1`) to avoid console attach instability.
+  - Adapter stderr is hidden by default to avoid log noise; enable it with `AITEAM_GEMINI_LOG_STDERR=1`.
+- `[sys:n] waiting for codex...` frequency tuning:
+  - Adjust with `AITEAM_SYS_PROGRESS_INTERVAL_MS` (default: `5000` ms).
 
 ## Testing (Vitest)
 

@@ -25,11 +25,39 @@ function resolveClaudePermissionMode(rawValue: string | undefined): string {
   return normalized;
 }
 
+function isClaudeBashAllowed(rawValue: string | undefined): boolean {
+  if (!rawValue) {
+    return false;
+  }
+  return ENABLED_VALUES.has(rawValue.trim().toLowerCase());
+}
+
+function shouldRouteCommandRequestsToCodex(rawValue: string | undefined): boolean {
+  if (!rawValue) {
+    return process.platform === 'win32';
+  }
+  return ENABLED_VALUES.has(rawValue.trim().toLowerCase());
+}
+
+function looksLikeCommandExecutionRequest(promptText: string): boolean {
+  const normalized = promptText.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return (
+    /^run\s+/.test(normalized) ||
+    /^execute\s+/.test(normalized) ||
+    /^please run\s+/.test(normalized) ||
+    /^command\s*:\s*/.test(normalized)
+  );
+}
+
 function buildAutonomousPrompt(agentId: string, originalPrompt: string): string {
   return [
     `[aiteam autonomy mode: ${agentId}]`,
     'Prefer agent-to-agent collaboration before replying to lead.',
     'Delegate tasks with exactly one line: @<agent> <task>.',
+    'If shell/terminal execution is required, delegate to @codex instead of running shell tools yourself.',
     'Send progress updates only when blocked; otherwise send final synthesized result.',
     '',
     'Task:',
@@ -49,6 +77,26 @@ function buildTextOnlyPrompt(agentId: string, originalPrompt: string): string {
   ].join('\n');
 }
 
+function extractClaudeDelegationFromText(text: string): { to: string; task: string } | null {
+  const lines = text.split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const match = line.match(/^@(\w+)\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+    const task = match[2].trim();
+    if (!task) {
+      continue;
+    }
+    return { to: match[1], task };
+  }
+  return null;
+}
+
 export class ClaudeAdapter {
   private claudeProcess: ChildProcess | null = null;
   private hubWs: WebSocket | null = null;
@@ -59,6 +107,8 @@ export class ClaudeAdapter {
   private autonomousModeEnabled: boolean;
   private textOnlyModeEnabled: boolean;
   private claudePermissionMode: string;
+  private allowBashTools: boolean;
+  private routeCommandRequestsToCodex: boolean;
   
   // Track requests for routing responses back
   // Map of messageId -> originating agent
@@ -75,6 +125,10 @@ export class ClaudeAdapter {
     );
     this.claudePermissionMode = resolveClaudePermissionMode(
       process.env.AITEAM_CLAUDE_PERMISSION_MODE
+    );
+    this.allowBashTools = isClaudeBashAllowed(process.env.AITEAM_CLAUDE_ALLOW_BASH);
+    this.routeCommandRequestsToCodex = shouldRouteCommandRequestsToCodex(
+      process.env.AITEAM_CLAUDE_ROUTE_COMMANDS_TO_CODEX
     );
   }
 
@@ -126,6 +180,9 @@ export class ClaudeAdapter {
       '--permission-mode',
       this.claudePermissionMode
     ];
+    if (process.platform === 'win32' && !this.allowBashTools) {
+      args.push('--disallowedTools', 'Bash');
+    }
 
     this.claudeProcess = spawn(cmd, args, {
       stdio: ['pipe', 'pipe', 'ignore'],
@@ -193,6 +250,25 @@ export class ClaudeAdapter {
         }
         const promptText =
           typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload);
+        if (
+          this.routeCommandRequestsToCodex &&
+          looksLikeCommandExecutionRequest(promptText)
+        ) {
+          if (this.hubWs && this.hubWs.readyState === WebSocket.OPEN) {
+            this.hubWs.send(
+              JSON.stringify({
+                id: randomUUID(),
+                from: this.agentId,
+                to: 'codex',
+                eventType: 'delegate',
+                returnTo: msg.returnTo || msg.from,
+                timestamp: Date.now(),
+                payload: promptText
+              })
+            );
+          }
+          return;
+        }
         let content = promptText;
         if (this.autonomousModeEnabled && msg.from === 'lead') {
           content = buildAutonomousPrompt(this.agentId, content);
@@ -229,7 +305,12 @@ export class ClaudeAdapter {
       let textContent = '';
       if (parsed.type === 'assistant' && parsed.message && parsed.message.content) {
           const content = parsed.message.content;
-          textContent = Array.isArray(content) ? content.map((c:any) => c.text).join('') : content;
+          textContent = Array.isArray(content)
+            ? content
+                .map((c: any) => (typeof c?.text === 'string' ? c.text : ''))
+                .filter((part: string) => part.length > 0)
+                .join('\n')
+            : content;
       }
 
       let to = 'lead';
@@ -237,11 +318,11 @@ export class ClaudeAdapter {
       let payload = parsed;
 
       // Check if this is an explicit delegation
-      const match = textContent.match(/^@(\w+)\s+([\s\S]*)$/);
-      if (match) {
-          to = match[1];
+      const delegation = extractClaudeDelegationFromText(textContent);
+      if (delegation) {
+          to = delegation.to;
           eventType = 'delegate';
-          payload = match[2];
+          payload = delegation.task;
           // console.debug(`[ClaudeAdapter] Intercepted delegation to ${to}`);
       } else {
           // If not a delegation, try to map back to the original requester.

@@ -148,4 +148,20 @@ describe('CLI output filter', () => {
 
     expect(formatted).toBeNull();
   });
+
+  it('prints structured adapter errors as conversational text', () => {
+    const formatted = formatCliMessage({
+      from: 'gemini',
+      payload: {
+        error: 'Gemini CLI failed to attach console',
+        exitCode: 1,
+        timedOut: false
+      }
+    });
+
+    expect(formatted).toEqual({
+      from: 'gemini',
+      text: 'Gemini CLI failed to attach console (exit=1)'
+    });
+  });
 });

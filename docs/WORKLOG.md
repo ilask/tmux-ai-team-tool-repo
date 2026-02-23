@@ -367,3 +367,36 @@
   - 影響範囲として `cli-ux-resilience` / `headless-workflow` を再実行し `5/5 pass`。
 - 出力ファイルパス:
   - `dist/cli.js`
+
+### 2026/02/23 20:42:17 (JST)
+- 目的:
+  - ユーザー再報告に対して、`@claude run ...` / `@gemini run ...` 時のWindows特有エラーと待機表示過多を追加抑制する。
+- 変更ファイル:
+  - 更新: `src/cli.ts`
+  - 更新: `src/adapters/claude.ts`
+  - 更新: `src/adapters/gemini.ts`
+  - 更新: `src/__tests__/cli-output-filter.spec.ts`
+  - 更新: `README.md`
+  - 更新: `docs/WORKLOG.md`
+- 実行コマンド:
+  - `pnpm run build`
+  - `pnpm exec vitest run src/__tests__/cli-output-filter.spec.ts src/__tests__/adapters/claude.spec.ts src/__tests__/adapters/gemini.spec.ts src/__tests__/e2e/cli-ux-resilience.spec.ts src/__tests__/e2e/headless-workflow.spec.ts`
+  - `node dist/cli.js codex`（TTY検証）
+    - `@claude run "aiteam -h"`
+    - `@gemini run "aiteam -h"`
+    - `exit`
+- 結果:
+  - CLIの待機表示を時間基準更新に変更し、`hidden=0` でも一定間隔で進捗表示できるよう調整。
+  - Claude:
+    - Windows既定で `Bash` を disallow 維持。
+    - さらに command-like prompt（`run ...` など）は既定で `codex` に自動委譲（`AITEAM_CLAUDE_ROUTE_COMMANDS_TO_CODEX`）。
+    - `@claude run ...` で `bash dofork` 系ログが発生しないことを確認。
+  - Gemini:
+    - stderr生ログは既定非表示（`AITEAM_GEMINI_LOG_STDERR=1` で有効化）。
+    - command-like prompt は Windows既定で `codex` 自動委譲（`AITEAM_GEMINI_ROUTE_COMMANDS_TO_CODEX`）。
+    - 非生成プロンプトのタイムアウト上限を別管理（`AITEAM_GEMINI_NON_GENERATE_TIMEOUT_MS`, default 90s）。
+    - 出力テキストのANSIエスケープ除去を追加。
+  - `formatCliMessage` に structured error 表示テストを追加。
+  - 変更後の対象テストは pass（`16/16`）。
+- 出力ファイルパス:
+  - `dist/cli.js`

@@ -1,5 +1,4 @@
 import { spawn, ChildProcess } from 'child_process';
-import * as readline from 'readline';
 import { WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
@@ -8,8 +7,11 @@ import * as path from 'path';
 type ExistsSyncFn = (path: string) => boolean;
 type ReadFileSyncFn = (path: string) => string;
 const AUTONOMOUS_MODE_DISABLED_VALUES = new Set(['0', 'false', 'off', 'no']);
+const ENABLED_VALUES = new Set(['1', 'true', 'on', 'yes']);
 const DEFAULT_GEMINI_GENERATE_MAX_ATTEMPTS = 3;
 const DEFAULT_GEMINI_PROCESS_TIMEOUT_MS = 180000;
+const DEFAULT_GEMINI_NON_GENERATE_TIMEOUT_MS = 90000;
+const ANSI_ESCAPE_REGEX = /\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 
 export function isGeminiAutonomousModeEnabled(rawValue: string | undefined): boolean {
   if (!rawValue) return true;
@@ -32,18 +34,60 @@ export function extractGeminiDelegationFromText(textContent: string): {
   to: string;
   task: string;
 } | null {
-  const match = textContent.match(/^@(\w+)\s+([\s\S]*)$/);
-  if (!match) {
-    return null;
+  const lines = textContent.split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const match = line.match(/^@(\w+)\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+    const task = match[2].trim();
+    if (!task) {
+      continue;
+    }
+    return {
+      to: match[1],
+      task
+    };
   }
-  const task = match[2].trim();
-  if (!task) {
-    return null;
+  return null;
+}
+
+function isGeminiStderrLoggingEnabled(rawValue: string | undefined): boolean {
+  if (!rawValue) {
+    return false;
   }
-  return {
-    to: match[1],
-    task
-  };
+  return ENABLED_VALUES.has(rawValue.trim().toLowerCase());
+}
+
+function normalizeGeminiOutputText(text: string): string {
+  return text
+    .replace(ANSI_ESCAPE_REGEX, '')
+    .replace(/\r/g, '')
+    .trim();
+}
+
+function shouldRouteCommandRequestsToCodex(rawValue: string | undefined): boolean {
+  if (!rawValue) {
+    return process.platform === 'win32';
+  }
+  return ENABLED_VALUES.has(rawValue.trim().toLowerCase());
+}
+
+function looksLikeCommandExecutionRequest(promptText: string): boolean {
+  const normalized = promptText.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return (
+    /^run\s+/.test(normalized) ||
+    /^execute\s+/.test(normalized) ||
+    /^please run\s+/.test(normalized) ||
+    /^command\s*:\s*/.test(normalized)
+  );
 }
 
 function stripGeminiApiKeyPrefix(value: string): string {
@@ -266,6 +310,9 @@ export class GeminiAdapter {
   private autonomousModeEnabled: boolean;
   private readonly generateMaxAttempts: number;
   private readonly processTimeoutMs: number;
+  private readonly nonGenerateTimeoutMs: number;
+  private readonly logStderr: boolean;
+  private readonly routeCommandRequestsToCodex: boolean;
 
   constructor(hubUrl: string, agentId: string = 'gemini') {
     this.hubUrl = hubUrl;
@@ -280,6 +327,14 @@ export class GeminiAdapter {
     this.processTimeoutMs = parsePositiveInt(
       process.env.AITEAM_GEMINI_PROCESS_TIMEOUT_MS,
       DEFAULT_GEMINI_PROCESS_TIMEOUT_MS
+    );
+    this.nonGenerateTimeoutMs = parsePositiveInt(
+      process.env.AITEAM_GEMINI_NON_GENERATE_TIMEOUT_MS,
+      DEFAULT_GEMINI_NON_GENERATE_TIMEOUT_MS
+    );
+    this.logStderr = isGeminiStderrLoggingEnabled(process.env.AITEAM_GEMINI_LOG_STDERR);
+    this.routeCommandRequestsToCodex = shouldRouteCommandRequestsToCodex(
+      process.env.AITEAM_GEMINI_ROUTE_COMMANDS_TO_CODEX
     );
   }
 
@@ -366,9 +421,13 @@ export class GeminiAdapter {
           ? buildGenerateExecutionPrompt(generateRequest)
           : generateCommand
         : promptText;
-      const args = generateMode
-        ? buildGeminiTextPromptArgs(promptToSend, this.geminiSessionId)
-        : buildGeminiPromptArgs(promptToSend, this.geminiSessionId);
+      const timeoutMs = generateMode
+        ? this.processTimeoutMs
+        : Math.min(this.processTimeoutMs, this.nonGenerateTimeoutMs);
+      const args = buildGeminiTextPromptArgs(
+        promptToSend,
+        generateMode ? this.geminiSessionId : null
+      );
       const geminiCliEntrypoint = resolveGeminiCliEntrypoint();
       const command = geminiCliEntrypoint ? process.execPath : 'gemini';
       const spawnArgs = geminiCliEntrypoint ? [geminiCliEntrypoint, ...args] : args;
@@ -398,32 +457,18 @@ export class GeminiAdapter {
         } catch {
           // Ignore timeout kill failures.
         }
-      }, this.processTimeoutMs);
-
-      const stdoutRl =
-        !generateMode && geminiProcess.stdout
-          ? readline.createInterface({ input: geminiProcess.stdout, terminal: false })
-          : null;
-      const stderrRl = geminiProcess.stderr
-        ? readline.createInterface({ input: geminiProcess.stderr, terminal: false })
-        : null;
+      }, timeoutMs);
 
       let bufferedStdout = '';
       let bufferedStderr = '';
-      if (generateMode) {
-        geminiProcess.stdout?.on('data', (chunk) => {
-          bufferedStdout += chunk.toString();
-        });
-      } else {
-        stdoutRl?.on('line', (line) => {
-          this.handleGeminiMessage(line, returnTo);
-        });
-      }
-
-      stderrRl?.on('line', (line) => {
-        bufferedStderr += `${line}\n`;
-        if (line.trim().length > 0) {
-          console.error('[GeminiAdapter] Gemini stderr:', line);
+      geminiProcess.stdout?.on('data', (chunk) => {
+        bufferedStdout += chunk.toString();
+      });
+      geminiProcess.stderr?.on('data', (chunk) => {
+        const text = chunk.toString();
+        bufferedStderr += text;
+        if (this.logStderr && text.trim().length > 0) {
+          console.error('[GeminiAdapter] Gemini stderr:', text.trimEnd());
         }
       });
 
@@ -438,7 +483,8 @@ export class GeminiAdapter {
 
       geminiProcess.on('exit', (code) => {
         clearTimeout(timeoutHandle);
-        const trimmedOutput = bufferedStdout.trim();
+        const trimmedOutput = normalizeGeminiOutputText(bufferedStdout);
+        const trimmedStderr = bufferedStderr.trim();
         if (generateMode) {
           const shouldRetry =
             attemptNumber < this.generateMaxAttempts &&
@@ -447,8 +493,6 @@ export class GeminiAdapter {
             console.warn(
               `[GeminiAdapter] Generate attempt ${attemptNumber} did not produce image output. Retrying (${attemptNumber + 1}/${this.generateMaxAttempts}).`
             );
-            stdoutRl?.close();
-            stderrRl?.close();
             this.activeGeminiProcesses.delete(geminiProcess);
             void this.runGeminiPrompt(promptText, returnTo, attemptNumber + 1).then(resolve);
             return;
@@ -466,21 +510,31 @@ export class GeminiAdapter {
               exitCode: code,
               timedOut: didTimeout,
               stdout: trimmedOutput.slice(-4000),
-              stderr: bufferedStderr.trim().slice(-2000)
+              stderr: trimmedStderr.slice(-2000)
             });
+          }
+        } else if (trimmedOutput.length > 0) {
+          const delegation = extractGeminiDelegationFromText(trimmedOutput);
+          if (delegation) {
+            this.sendHubMessage(delegation.to, 'delegate', delegation.task);
+          } else {
+            this.sendHubMessage(returnTo, 'gemini_text', trimmedOutput);
           }
         }
         if (code !== 0) {
+          const looksLikeAttachConsoleError =
+            /attachconsole failed/i.test(trimmedStderr) ||
+            /conpty_console_list_agent/i.test(trimmedStderr);
           this.sendHubMessage(returnTo, 'gemini_error', {
-            error: 'Gemini process exited with non-zero status',
+            error: looksLikeAttachConsoleError
+              ? 'Gemini CLI failed to attach console'
+              : 'Gemini process exited with non-zero status',
             attempt: attemptNumber,
             exitCode: code,
             timedOut: didTimeout,
-            stderr: bufferedStderr.trim().slice(-4000)
+            stderr: trimmedStderr.slice(-4000)
           });
         }
-        stdoutRl?.close();
-        stderrRl?.close();
         this.activeGeminiProcesses.delete(geminiProcess);
         resolve();
       });
@@ -501,76 +555,42 @@ export class GeminiAdapter {
         if (!promptText || promptText.trim().length === 0) {
           return;
         }
-        const effectivePromptText =
-          this.autonomousModeEnabled && msg.from === 'lead'
-            ? buildGeminiAutonomousPrompt(this.agentId, promptText)
-            : promptText;
-
         const returnTo =
           typeof msg.returnTo === 'string'
             ? msg.returnTo
             : typeof msg.from === 'string'
               ? msg.from
               : 'lead';
+
+        if (
+          this.routeCommandRequestsToCodex &&
+          !isGeminiGeneratePrompt(promptText) &&
+          looksLikeCommandExecutionRequest(promptText)
+        ) {
+          if (this.hubWs && this.hubWs.readyState === WebSocket.OPEN) {
+            this.hubWs.send(
+              JSON.stringify({
+                id: randomUUID(),
+                from: this.agentId,
+                to: 'codex',
+                eventType: 'delegate',
+                returnTo,
+                timestamp: Date.now(),
+                payload: promptText
+              })
+            );
+          }
+          return;
+        }
+
+        const effectivePromptText =
+          this.autonomousModeEnabled && msg.from === 'lead'
+            ? buildGeminiAutonomousPrompt(this.agentId, promptText)
+            : promptText;
         this.enqueueGeminiPrompt(effectivePromptText, returnTo);
       }
     } catch (e) {
       console.error('[GeminiAdapter] Failed to parse hub message:', e);
-    }
-  }
-
-  private handleGeminiMessage(line: string, defaultTarget: string) {
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed.type === 'init' && typeof parsed.session_id === 'string') {
-        this.geminiSessionId = parsed.session_id;
-        return;
-      }
-      if (parsed.type === 'message' && parsed.role !== 'assistant') {
-        return;
-      }
-      if (parsed.type === 'result' && parsed.status === 'success') {
-        return;
-      }
-
-      // Attempt to extract text to check for delegation
-      let textContent = '';
-      if (parsed.message && parsed.message.content) {
-          const content = parsed.message.content;
-          textContent = typeof content === 'string' ? content : (Array.isArray(content) ? content.map((c:any) => c.text).join('') : JSON.stringify(content));
-      } else if (parsed.result) {
-          textContent = typeof parsed.result === 'string' ? parsed.result : JSON.stringify(parsed.result);
-      }
-
-      let to = defaultTarget;
-      let eventType = parsed.type || 'gemini_event';
-      let payload = parsed;
-
-      // Check if this is an explicit delegation
-      const delegation = extractGeminiDelegationFromText(textContent);
-      if (delegation) {
-          to = delegation.to;
-          eventType = 'delegate';
-          payload = delegation.task;
-          // console.debug(`[GeminiAdapter] Intercepted delegation to ${to}`);
-      }
-
-      const hubMsg = {
-        id: randomUUID(),
-        from: this.agentId,
-        to: to,
-        eventType: eventType,
-        returnTo: this.agentId,
-        timestamp: Date.now(),
-        payload: payload
-      };
-
-      if (this.hubWs && this.hubWs.readyState === WebSocket.OPEN) {
-        this.hubWs.send(JSON.stringify(hubMsg));
-      }
-    } catch (e) {
-      // If output is not JSON, might be raw text from early startup
-      console.error('[GeminiAdapter] Non-JSON from Gemini:', line);
     }
   }
 

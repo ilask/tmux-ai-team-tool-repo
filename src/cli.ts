@@ -15,6 +15,13 @@ const SUPPORTED_AGENTS = ['codex', 'claude', 'gemini'] as const;
 type SupportedAgentId = (typeof SUPPORTED_AGENTS)[number];
 const DEFAULT_MAIN_AGENT: SupportedAgentId = 'codex';
 const CLI_MESSAGE_DEDUP_WINDOW_MS = 600;
+const parsedSysProgressInterval = process.env.AITEAM_SYS_PROGRESS_INTERVAL_MS
+  ? parseInt(process.env.AITEAM_SYS_PROGRESS_INTERVAL_MS, 10)
+  : Number.NaN;
+const SYS_PROGRESS_MIN_INTERVAL_MS =
+  Number.isFinite(parsedSysProgressInterval) && parsedSysProgressInterval > 0
+    ? Math.max(1000, parsedSysProgressInterval)
+    : 5000;
 const IGNORED_RPC_METHODS = new Set([
   'thread/started',
   'thread/updated',
@@ -207,6 +214,25 @@ export function extractConversationalText(payload: unknown): string | null {
     IGNORED_RPC_METHODS.has(payloadRecord.method)
   ) {
     return null;
+  }
+
+  if (typeof payloadRecord.error === 'string') {
+    const details: string[] = [];
+    if (typeof payloadRecord.target === 'string') {
+      details.push(`target=${payloadRecord.target}`);
+    }
+    if (typeof payloadRecord.reason === 'string') {
+      details.push(payloadRecord.reason);
+    }
+    if (typeof payloadRecord.exitCode === 'number') {
+      details.push(`exit=${payloadRecord.exitCode}`);
+    }
+    if (payloadRecord.timedOut === true) {
+      details.push('timedOut');
+    }
+
+    const suffix = details.length > 0 ? ` (${details.join(', ')})` : '';
+    return normalizeText(`${payloadRecord.error}${suffix}`);
   }
 
   const codexEventText = extractTextFromCodexEvent(payloadRecord);
@@ -488,13 +514,56 @@ async function main() {
   });
 
   let isShuttingDown = false;
-  let systemMessageCount = 0;
+  let hiddenMessageCount = 0;
+  let lastRenderedHiddenMessageCount = 0;
+  let lastSystemProgressAt = 0;
+  let waitingForResponse = false;
   const recentCliMessages = new Map<string, number>();
+  let systemProgressTimer: NodeJS.Timeout | null = null;
 
   function showPrompt() {
     if (isShuttingDown) return;
     rl.setPrompt(`You(${mainAgent})> `);
     rl.prompt();
+  }
+
+  function renderSystemProgress(force = false) {
+    if (isShuttingDown || !waitingForResponse) {
+      return;
+    }
+
+    const now = Date.now();
+    if (!force && now - lastSystemProgressAt < SYS_PROGRESS_MIN_INTERVAL_MS) {
+      return;
+    }
+    if (
+      !force &&
+      hiddenMessageCount === lastRenderedHiddenMessageCount &&
+      hiddenMessageCount > 0
+    ) {
+      return;
+    }
+
+    lastSystemProgressAt = now;
+    lastRenderedHiddenMessageCount = hiddenMessageCount;
+    readline.clearLine(process.stdout, 0);
+    readline.cursorTo(process.stdout, 0);
+    console.log(`\n[sys:${hiddenMessageCount}] waiting for ${mainAgent}...`);
+    showPrompt();
+  }
+
+  function beginWaitingForResponse() {
+    waitingForResponse = true;
+    hiddenMessageCount = 0;
+    lastRenderedHiddenMessageCount = 0;
+    lastSystemProgressAt = 0;
+  }
+
+  function endWaitingForResponse() {
+    waitingForResponse = false;
+    hiddenMessageCount = 0;
+    lastRenderedHiddenMessageCount = 0;
+    lastSystemProgressAt = 0;
   }
 
   ws.on('open', () => {
@@ -505,6 +574,9 @@ async function main() {
     console.log(`Type plain text to send tasks to ${mainAgent}.`);
     console.log('Type "@agent message" for explicit routing.');
     console.log('Type "/status" to inspect self/peer connection states.');
+    systemProgressTimer = setInterval(() => {
+      renderSystemProgress(false);
+    }, SYS_PROGRESS_MIN_INTERVAL_MS);
     showPrompt();
   });
 
@@ -525,13 +597,8 @@ async function main() {
       const parsed = JSON.parse(data.toString());
       displayMessage = formatCliMessage(parsed);
       if (!displayMessage) {
-        systemMessageCount += 1;
-        if (systemMessageCount === 1 || systemMessageCount % 20 === 0) {
-          readline.clearLine(process.stdout, 0);
-          readline.cursorTo(process.stdout, 0);
-          console.log(`\n[sys:${systemMessageCount}] waiting for ${mainAgent}...`);
-          showPrompt();
-        }
+        hiddenMessageCount += 1;
+        renderSystemProgress(false);
       }
     } catch {
       return;
@@ -540,6 +607,8 @@ async function main() {
     if (!displayMessage) {
       return;
     }
+
+    endWaitingForResponse();
 
     const now = Date.now();
     for (const [messageKey, timestamp] of recentCliMessages.entries()) {
@@ -617,6 +686,7 @@ async function main() {
         payload
       })
     );
+    beginWaitingForResponse();
     showPrompt();
   });
 
@@ -624,6 +694,10 @@ async function main() {
     if (isShuttingDown) return;
     isShuttingDown = true;
     console.log('\nShutting down...');
+    if (systemProgressTimer) {
+      clearInterval(systemProgressTimer);
+      systemProgressTimer = null;
+    }
     rl.close();
     ws.close();
     codex.stop();
