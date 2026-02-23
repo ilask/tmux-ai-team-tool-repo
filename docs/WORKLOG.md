@@ -268,3 +268,23 @@
   - 追加分を含む対象テストは `5/5 passed`。
 - 出力ファイルパス:
   - なし（テスト追加）
+
+### 2026/02/23 13:25:18 (JST)
+- 目的:
+  - 手動 probe スクリプトをテスト資産配置に合わせて `src/__tests__/` 配下へ集約する。
+- 変更ファイル:
+  - 移動: `scripts/probes/test-claude-stdio.ts` -> `src/__tests__/probes/test-claude-stdio.ts`
+  - 移動: `scripts/probes/test-codex-rpc.ts` -> `src/__tests__/probes/test-codex-rpc.ts`
+  - 移動: `scripts/probes/test-codex-stdio.ts` -> `src/__tests__/probes/test-codex-stdio.ts`
+  - 移動: `scripts/probes/test-gemini-stdio.ts` -> `src/__tests__/probes/test-gemini-stdio.ts`
+  - 更新: `README.md`
+  - 更新: `docs/WORKLOG.md`
+- 実行コマンド:
+  - `git mv scripts/probes src/__tests__/probes`
+  - `rg -n "scripts/probes|src/__tests__/probes|Manual adapter probe" README.md docs package.json`
+- 結果:
+  - 手動 probe スクリプトを `src/__tests__/probes/` へ移設。
+  - README の Test Layout を新配置へ更新。
+  - probe は `*.spec.ts` / `*.test.ts` 命名ではないため、Vitest の通常実行対象には含まれない。
+- 出力ファイルパス:
+  - `src/__tests__/probes/`

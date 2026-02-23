@@ -129,7 +129,7 @@ pnpm run test src/__tests__/e2e/
 ### Test Layout
 
 - Active Node/Vitest tests: `src/__tests__/`
-- Manual adapter probe scripts: `scripts/probes/`
+- Manual adapter probe scripts (not auto-run by Vitest): `src/__tests__/probes/`
 
 ## E2E Scenarios (Copy/Paste)
 
