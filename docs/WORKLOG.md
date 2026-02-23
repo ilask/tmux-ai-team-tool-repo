@@ -55,6 +55,30 @@
 - 出力ファイルパス:
   - `dist/cli.js`
 
+### 2026/02/24 00:42:25 (JST)
+- 目的:
+  - `GEMINI_API_KEY_FILE` 依存を削除し、`GEMINI_API_KEY` のみでGemini認証を行うよう整理する。
+  - 併せて Gemini 応答の実E2Eを追加し、ローカル実行で pass を確認する。
+- 変更ファイル:
+  - 更新: `src/adapters/gemini.ts`
+  - 追加: `src/__tests__/adapters/gemini-api-key.spec.ts`
+  - 追加: `src/__tests__/e2e/gemini-response.spec.ts`
+  - 更新: `docs/WORKLOG.md`
+- 実行コマンド:
+  - `pnpm run build`
+  - `pnpm exec vitest run src/__tests__/adapters/gemini-api-key.spec.ts src/__tests__/adapters/gemini.spec.ts --reporter verbose`
+  - `$env:AITEAM_RUN_REAL_GEMINI_E2E='1'; pnpm exec vitest run src/__tests__/e2e/gemini-response.spec.ts --reporter verbose`
+- 結果:
+  - APIキー解決:
+    - `resolveGeminiApiKeyFromEnv` は `GEMINI_API_KEY` のみ参照する実装へ変更。
+    - `GEMINI_API_KEY_FILE` の読込・パス解決ロジックを削除。
+  - テスト:
+    - `gemini-api-key.spec.ts`: `3/3 pass`
+    - `gemini.spec.ts`: `1/1 pass`
+    - `gemini-response.spec.ts`（実Gemini E2E）: `1/1 pass`（約64秒）
+- 出力ファイルパス:
+  - `dist/cli.js`
+
 ### 2026/02/24 00:04:25 (JST)
 - 目的:
   - リポジトリ説明依頼に対応するため、`README.md` / `docs/PROJECT_SPEC.md` / `docs/RUNBOOK.md` / `docs/WORKLOG.md` と主要実装 (`src/cli.ts`, `src/index.ts`, `src/adapters/codex.ts`) を確認して要点を整理する。

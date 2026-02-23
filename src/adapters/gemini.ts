@@ -3,9 +3,6 @@ import { WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-
-type ExistsSyncFn = (path: string) => boolean;
-type ReadFileSyncFn = (path: string) => string;
 const AUTONOMOUS_MODE_DISABLED_VALUES = new Set(['0', 'false', 'off', 'no']);
 const ENABLED_VALUES = new Set(['1', 'true', 'on', 'yes']);
 const DEFAULT_GEMINI_GENERATE_MAX_ATTEMPTS = 3;
@@ -93,44 +90,9 @@ export function normalizeGeminiApiKey(rawValue: string): string {
   return value.trim();
 }
 
-export function resolveGeminiApiKeyFromEnv(
-  env: NodeJS.ProcessEnv,
-  deps?: {
-    existsSync?: ExistsSyncFn;
-    readFileSync?: ReadFileSyncFn;
-  }
-): string | undefined {
-  const existsSync = deps?.existsSync ?? fs.existsSync;
-  const readFileSync =
-    deps?.readFileSync ??
-    ((path: string) => fs.readFileSync(path, { encoding: 'utf8' }));
-
-  const readKeyFromPath = (pathCandidate: string): string | undefined => {
-    const trimmedPath = pathCandidate.trim();
-    if (!trimmedPath || !existsSync(trimmedPath)) {
-      return undefined;
-    }
-    const fileContent = readFileSync(trimmedPath);
-    const normalized = normalizeGeminiApiKey(fileContent);
-    return normalized.length > 0 ? normalized : undefined;
-  };
-
-  const fileEnv = env.GEMINI_API_KEY_FILE ?? '';
-  const normalizedFileEnv = normalizeGeminiApiKey(fileEnv);
-  const keyFromExplicitFile =
-    readKeyFromPath(fileEnv) ?? readKeyFromPath(normalizedFileEnv);
-  if (keyFromExplicitFile) {
-    return keyFromExplicitFile;
-  }
-
+export function resolveGeminiApiKeyFromEnv(env: NodeJS.ProcessEnv): string | undefined {
   const keyEnv = env.GEMINI_API_KEY ?? '';
   const normalizedKeyEnv = normalizeGeminiApiKey(keyEnv);
-  const keyFromPathValue =
-    readKeyFromPath(keyEnv) ?? readKeyFromPath(normalizedKeyEnv);
-  if (keyFromPathValue) {
-    return keyFromPathValue;
-  }
-
   return normalizedKeyEnv.length > 0 ? normalizedKeyEnv : undefined;
 }
 
