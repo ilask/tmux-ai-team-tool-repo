@@ -160,3 +160,25 @@
   - 残存 stash の内容は 60 files / 12681 insertions（同期前の安全退避スナップショット）。
 - 出力ファイルパス:
   - なし（Git 状態確認）
+
+### 2026/02/23 12:15:40 (JST)
+- 目的:
+  - ユーザー依頼に基づき、`stash@{0}` の中身を `tests` 系を除外して 1 ファイルずつ確認する。
+- 変更ファイル:
+  - `docs/WORKLOG.md`
+- 実行コマンド:
+  - `git diff --name-only --diff-filter=ACM "stash@{0}^1" "stash@{0}"`
+  - `git show "stash@{0}:<path>"`
+  - `git ls-tree "stash@{0}" -- e2e-dataset/growi-semantic-search-task/growi-submodule`
+  - `git rev-parse "stash@{0}:<path>"`, `git rev-parse "HEAD:<path>"`
+  - `git diff "stash@{0}" -- docs/RUNBOOK.md`
+  - `git diff "stash@{0}" -- src/cli.ts src/index.ts`
+- 結果:
+  - `tests/**`, `src/__tests__/**`, `test-*.ts` を除外した対象は 30 ファイル。
+  - 30 ファイルすべての内容を確認（サブモジュールは gitlink SHA で確認）。
+  - 状態内訳: `same_as_head` 17 件, `missing_in_head` 10 件, `differs_from_head` 3 件。
+  - `differs_from_head`: `docs/RUNBOOK.md`, `src/cli.ts`, `src/index.ts`。
+  - `missing_in_head`: `docs/20260222_*` 一式と `scripts/win/*` など、現行 HEAD には存在しない過去退避物を確認。
+- 出力ファイルパス:
+  - `tmp/stash0_non_tests_preview.txt`
+  - `tmp/stash0_non_tests_structure.txt`
