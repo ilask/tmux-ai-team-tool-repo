@@ -123,3 +123,24 @@
 - `ba49c16` Add copy-paste E2E examples to README
 - `93e9b63` Stabilize Windows inter-agent E2E and add README scenarios (remote master)
 - `870a290` docs: rotate WORKLOG and archive details
+
+### 2026/02/23 12:09:39 (JST)
+- 目的:
+  - `docs/RUNBOOK.md` が消失していたため、WezTerm 経由テスト手順と代替手段の不採用理由を復元する。
+- 変更ファイル:
+  - `docs/RUNBOOK.md`
+  - `docs/WORKLOG.md`
+- 実行コマンド:
+  - `git log --all --oneline -- docs/RUNBOOK.md`
+  - `git show 6c9b62f83436d4e23b420be33923adc01fc3a4b6:docs/RUNBOOK.md`
+  - `Get-Content README.md`
+  - `Get-Content docs/PROJECT_SPEC.md`
+  - `Get-Content docs/WORKLOG.md`
+  - `Get-Content src/__tests__/e2e/wezterm-harness.ts`
+  - `Get-Content src/__tests__/e2e/inter-agent.spec.ts`
+- 結果:
+  - `docs/RUNBOOK.md` を新規復元。
+  - 受け入れテストの WezTerm CLI 手順を「手動スモーク」「Vitest E2E」に分けて明記。
+  - `agent-tui` / `wtmux` / `wt` / `WSL+tmux` を主系にしない理由を簡潔に明記。
+- 出力ファイルパス:
+  - `docs/RUNBOOK.md`
