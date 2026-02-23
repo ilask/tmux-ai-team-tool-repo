@@ -70,26 +70,6 @@ function normalizeGeminiOutputText(text: string): string {
     .trim();
 }
 
-function shouldRouteCommandRequestsToCodex(rawValue: string | undefined): boolean {
-  if (!rawValue) {
-    return process.platform === 'win32';
-  }
-  return ENABLED_VALUES.has(rawValue.trim().toLowerCase());
-}
-
-function looksLikeCommandExecutionRequest(promptText: string): boolean {
-  const normalized = promptText.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return (
-    /^run\s+/.test(normalized) ||
-    /^execute\s+/.test(normalized) ||
-    /^please run\s+/.test(normalized) ||
-    /^command\s*:\s*/.test(normalized)
-  );
-}
-
 function stripGeminiApiKeyPrefix(value: string): string {
   return value.startsWith('GEMINI_API_KEY=')
     ? value.slice('GEMINI_API_KEY='.length)
@@ -312,7 +292,6 @@ export class GeminiAdapter {
   private readonly processTimeoutMs: number;
   private readonly nonGenerateTimeoutMs: number;
   private readonly logStderr: boolean;
-  private readonly routeCommandRequestsToCodex: boolean;
 
   constructor(hubUrl: string, agentId: string = 'gemini') {
     this.hubUrl = hubUrl;
@@ -333,9 +312,6 @@ export class GeminiAdapter {
       DEFAULT_GEMINI_NON_GENERATE_TIMEOUT_MS
     );
     this.logStderr = isGeminiStderrLoggingEnabled(process.env.AITEAM_GEMINI_LOG_STDERR);
-    this.routeCommandRequestsToCodex = shouldRouteCommandRequestsToCodex(
-      process.env.AITEAM_GEMINI_ROUTE_COMMANDS_TO_CODEX
-    );
   }
 
   public async start() {
@@ -561,28 +537,6 @@ export class GeminiAdapter {
             : typeof msg.from === 'string'
               ? msg.from
               : 'lead';
-
-        if (
-          this.routeCommandRequestsToCodex &&
-          !isGeminiGeneratePrompt(promptText) &&
-          looksLikeCommandExecutionRequest(promptText)
-        ) {
-          if (this.hubWs && this.hubWs.readyState === WebSocket.OPEN) {
-            this.hubWs.send(
-              JSON.stringify({
-                id: randomUUID(),
-                from: this.agentId,
-                to: 'codex',
-                eventType: 'delegate',
-                returnTo,
-                timestamp: Date.now(),
-                payload: promptText
-              })
-            );
-          }
-          return;
-        }
-
         const effectivePromptText =
           this.autonomousModeEnabled && msg.from === 'lead'
             ? buildGeminiAutonomousPrompt(this.agentId, promptText)

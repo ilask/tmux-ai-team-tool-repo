@@ -532,6 +532,10 @@ async function main() {
       return;
     }
 
+    if (!force && hiddenMessageCount === 0 && lastRenderedHiddenMessageCount === 0) {
+      return;
+    }
+
     const now = Date.now();
     if (!force && now - lastSystemProgressAt < SYS_PROGRESS_MIN_INTERVAL_MS) {
       return;
@@ -548,7 +552,11 @@ async function main() {
     lastRenderedHiddenMessageCount = hiddenMessageCount;
     readline.clearLine(process.stdout, 0);
     readline.cursorTo(process.stdout, 0);
-    console.log(`\n[sys:${hiddenMessageCount}] waiting for ${mainAgent}...`);
+    if (hiddenMessageCount > 0) {
+      console.log(`\n[sys:${hiddenMessageCount}] waiting for ${mainAgent}...`);
+    } else {
+      console.log(`\n[sys] waiting for ${mainAgent}...`);
+    }
     showPrompt();
   }
 
@@ -557,6 +565,7 @@ async function main() {
     hiddenMessageCount = 0;
     lastRenderedHiddenMessageCount = 0;
     lastSystemProgressAt = 0;
+    renderSystemProgress(true);
   }
 
   function endWaitingForResponse() {

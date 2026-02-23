@@ -27,29 +27,9 @@ function resolveClaudePermissionMode(rawValue: string | undefined): string {
 
 function isClaudeBashAllowed(rawValue: string | undefined): boolean {
   if (!rawValue) {
-    return false;
+    return true;
   }
-  return ENABLED_VALUES.has(rawValue.trim().toLowerCase());
-}
-
-function shouldRouteCommandRequestsToCodex(rawValue: string | undefined): boolean {
-  if (!rawValue) {
-    return process.platform === 'win32';
-  }
-  return ENABLED_VALUES.has(rawValue.trim().toLowerCase());
-}
-
-function looksLikeCommandExecutionRequest(promptText: string): boolean {
-  const normalized = promptText.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return (
-    /^run\s+/.test(normalized) ||
-    /^execute\s+/.test(normalized) ||
-    /^please run\s+/.test(normalized) ||
-    /^command\s*:\s*/.test(normalized)
-  );
+  return !AUTONOMOUS_MODE_DISABLED_VALUES.has(rawValue.trim().toLowerCase());
 }
 
 function buildAutonomousPrompt(agentId: string, originalPrompt: string): string {
@@ -57,7 +37,6 @@ function buildAutonomousPrompt(agentId: string, originalPrompt: string): string 
     `[aiteam autonomy mode: ${agentId}]`,
     'Prefer agent-to-agent collaboration before replying to lead.',
     'Delegate tasks with exactly one line: @<agent> <task>.',
-    'If shell/terminal execution is required, delegate to @codex instead of running shell tools yourself.',
     'Send progress updates only when blocked; otherwise send final synthesized result.',
     '',
     'Task:',
@@ -108,7 +87,6 @@ export class ClaudeAdapter {
   private textOnlyModeEnabled: boolean;
   private claudePermissionMode: string;
   private allowBashTools: boolean;
-  private routeCommandRequestsToCodex: boolean;
   
   // Track requests for routing responses back
   // Map of messageId -> originating agent
@@ -127,9 +105,6 @@ export class ClaudeAdapter {
       process.env.AITEAM_CLAUDE_PERMISSION_MODE
     );
     this.allowBashTools = isClaudeBashAllowed(process.env.AITEAM_CLAUDE_ALLOW_BASH);
-    this.routeCommandRequestsToCodex = shouldRouteCommandRequestsToCodex(
-      process.env.AITEAM_CLAUDE_ROUTE_COMMANDS_TO_CODEX
-    );
   }
 
   public async start() {
@@ -250,25 +225,6 @@ export class ClaudeAdapter {
         }
         const promptText =
           typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload);
-        if (
-          this.routeCommandRequestsToCodex &&
-          looksLikeCommandExecutionRequest(promptText)
-        ) {
-          if (this.hubWs && this.hubWs.readyState === WebSocket.OPEN) {
-            this.hubWs.send(
-              JSON.stringify({
-                id: randomUUID(),
-                from: this.agentId,
-                to: 'codex',
-                eventType: 'delegate',
-                returnTo: msg.returnTo || msg.from,
-                timestamp: Date.now(),
-                payload: promptText
-              })
-            );
-          }
-          return;
-        }
         let content = promptText;
         if (this.autonomousModeEnabled && msg.from === 'lead') {
           content = buildAutonomousPrompt(this.agentId, content);

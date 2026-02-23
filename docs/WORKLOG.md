@@ -400,3 +400,52 @@
   - 変更後の対象テストは pass（`16/16`）。
 - 出力ファイルパス:
   - `dist/cli.js`
+
+### 2026/02/23 21:50:55 (JST)
+- 目的:
+  - ユーザー要望に合わせて、Claude/Gemini の「command-like prompt を codex へ自動委譲する機能」を撤廃し、各エージェント自身で実行する挙動へ戻す。
+  - 併せて Claude Bash をデフォルト許可に変更し、CLI の `[sys:0]` 表示スパムを抑制する。
+- 変更ファイル:
+  - 更新: `src/adapters/claude.ts`
+  - 更新: `src/adapters/gemini.ts`
+  - 更新: `src/cli.ts`
+  - 更新: `README.md`
+  - 更新: `docs/WORKLOG.md`
+- 実行コマンド:
+  - `pnpm run build`
+  - `pnpm exec vitest run src/__tests__/adapters/claude.spec.ts src/__tests__/adapters/gemini.spec.ts src/__tests__/cli-output-filter.spec.ts src/__tests__/e2e/cli-ux-resilience.spec.ts src/__tests__/e2e/headless-workflow.spec.ts`
+  - `node dist/cli.js codex`（TTY検証）
+    - `@claude run "aiteam -h"`
+    - `@gemini run "aiteam -h"`
+    - `exit`
+- 結果:
+  - Claude:
+    - `AITEAM_CLAUDE_ROUTE_COMMANDS_TO_CODEX` 系の自動委譲実装を削除。
+    - `AITEAM_CLAUDE_ALLOW_BASH` 未設定時の既定値を `allow` に変更（`0/false/off/no` でのみ無効化）。
+  - Gemini:
+    - `AITEAM_GEMINI_ROUTE_COMMANDS_TO_CODEX` 系の自動委譲実装を削除。
+    - `@gemini run "aiteam -h"` で codex ではなく gemini 本人が応答することを確認。
+  - CLI:
+    - 待機表示を `[sys]` / `[sys:n]` に分岐し、`[sys:0]` の連続表示を抑制。
+  - README:
+    - 自動委譲の説明を削除し、現行仕様（Claude Bash 既定許可）へ更新。
+  - テスト:
+    - 対象テストは pass（adapter/e2e 合計 `7/7`）。
+- 出力ファイルパス:
+  - `dist/cli.js`
+
+### 2026/02/23 22:03:30 (JST)
+- 目的:
+  - PC再起動後に、Claude/Gemini の自動委譲撤廃とCLI待機表示改善の差分が保持されていることを再確認し、再検証して確定する。
+- 変更ファイル:
+  - 更新: `docs/WORKLOG.md`
+- 実行コマンド:
+  - `git status -sb`
+  - `pnpm run build`
+  - `pnpm exec vitest run src/__tests__/adapters/claude.spec.ts src/__tests__/adapters/gemini.spec.ts src/__tests__/cli-output-filter.spec.ts src/__tests__/e2e/cli-ux-resilience.spec.ts src/__tests__/e2e/headless-workflow.spec.ts`
+- 結果:
+  - 再起動後も未コミット差分は保持。
+  - `build` 成功。
+  - 対象テストは全 pass（`5 files / 16 tests`）。
+- 出力ファイルパス:
+  - `dist/cli.js`
