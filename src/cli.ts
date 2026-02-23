@@ -526,7 +526,7 @@ async function main() {
       displayMessage = formatCliMessage(parsed);
       if (!displayMessage) {
         systemMessageCount += 1;
-        if (systemMessageCount === 1 || systemMessageCount % 5 === 0) {
+        if (systemMessageCount === 1 || systemMessageCount % 20 === 0) {
           readline.clearLine(process.stdout, 0);
           readline.cursorTo(process.stdout, 0);
           console.log(`\n[sys:${systemMessageCount}] waiting for ${mainAgent}...`);

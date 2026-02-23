@@ -346,3 +346,24 @@
   - Windowsフォールバック、Gemini の `-p` エントリ、Claude の `bypassPermissions` デフォルトはいずれも該当コード通りに維持されており、追加の懸念点は確認できなかった。
 - 出力ファイルパス:
   - なし（レビュー記録）
+
+### 2026/02/23 20:10:57 (JST)
+- 目的:
+  - 追加調整（グローバル実行時の無反応修正、`[sys:n]` 表示頻度の抑制）と最終再検証。
+- 変更ファイル:
+  - 更新: `src/cli.ts`
+  - 更新: `docs/WORKLOG.md`
+- 実行コマンド:
+  - `pnpm run build`
+  - `npm install -g . --force`
+  - `aiteam -h`
+  - `Set-Location C:\\Users\\notak\\OneDrive\\デスクトップ\\kaggle\\store_sales; aiteam -h`
+  - `Set-Location C:\\Users\\notak\\OneDrive\\デスクトップ\\kaggle\\store_sales; $inputData = "/status`nexit`n"; $inputData | aiteam`
+  - `pnpm exec vitest run src/__tests__/e2e/cli-ux-resilience.spec.ts src/__tests__/e2e/headless-workflow.spec.ts`
+- 結果:
+  - `isExecutedAsEntryPoint` を `realpath` 比較へ変更し、`npm -g` シンボリックリンク経由でも `aiteam -h` が正常表示されることを確認。
+  - `[sys:n]` の表示間隔を `1回目 + 20件ごと` に変更し、待機中ログの過多を軽減。
+  - `kaggle/store_sales` からの `aiteam -h` と `/status` 実行で新UX反映を確認。
+  - 影響範囲として `cli-ux-resilience` / `headless-workflow` を再実行し `5/5 pass`。
+- 出力ファイルパス:
+  - `dist/cli.js`
