@@ -19,6 +19,25 @@
 
 ## 直近エントリ
 
+### 2026/02/24 09:30:26 (JST)
+- 目的:
+  - セットアップ後の実行確認として、CLIの実起動スモークテストとエージェントCLI解決状況を確認する。
+- 変更ファイル:
+  - 更新: `docs/WORKLOG.md`
+- 実行コマンド:
+  - `Get-Command codex | Select-Object -ExpandProperty Source`
+  - `Get-Command claude | Select-Object -ExpandProperty Source`
+  - `Get-Command gemini | Select-Object -ExpandProperty Source`
+  - `node dist/cli.js codex`
+  - `exit`（対話プロンプトに入力）
+- 結果:
+  - `codex` / `claude` / `gemini` の各CLIをPATH上で解決可能であることを確認。
+  - `aiteam` 起動時に `--- aiteam CLI ---` 表示を確認。
+  - `You(codex)>` プロンプト表示後、`exit` で正常終了（`Shutting down...`）。
+  - 補足: `GEMINI_API_KEY` 未設定警告は表示されるが、CLI起動確認自体は成功。
+- 出力ファイルパス:
+  - `dist/cli.js`
+
 ### 2026/02/24 09:26:50 (JST)
 - 目的:
   - 新規環境で `aiteam` を実行可能にするため、依存導入・ビルド・グローバル実行導線のセットアップを行う。
