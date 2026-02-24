@@ -19,6 +19,31 @@
 
 ## 直近エントリ
 
+### 2026/02/24 09:26:50 (JST)
+- 目的:
+  - 新規環境で `aiteam` を実行可能にするため、依存導入・ビルド・グローバル実行導線のセットアップを行う。
+- 変更ファイル:
+  - 更新: `docs/WORKLOG.md`
+- 実行コマンド:
+  - `node -v`
+  - `npm install -g pnpm`
+  - `pnpm -v`
+  - `pnpm install`
+  - `pnpm run build`
+  - `node dist/cli.js -h`
+  - `pnpm setup`
+  - `$env:PNPM_HOME='C:\Users\080001538\AppData\Local\pnpm'; $env:Path="$env:PNPM_HOME;$env:Path"; pnpm link --global`
+  - `$env:PNPM_HOME='C:\Users\080001538\AppData\Local\pnpm'; $env:Path="$env:PNPM_HOME;$env:Path"; aiteam -h`
+- 結果:
+  - `pnpm` をグローバル導入し、`pnpm@8.15.4` を利用可能化。
+  - 依存インストール完了（`pnpm install` 成功）。
+  - ビルド成功（`dist/cli.js` を含む成果物生成）。
+  - `pnpm link --global` によりグローバル shim を作成。
+  - `PNPM_HOME` を PATH に含めたセッションで `aiteam -h` の起動を確認。
+- 出力ファイルパス:
+  - `dist/cli.js`
+  - `C:\Users\080001538\AppData\Local\pnpm\aiteam.cmd`
+
 ### 2026/02/23 23:57:11 (JST)
 - 目的:
   - ユーザー報告の「codex応答が見えない/遅い」現象を優先して、待機UXとCodex起動設定を改善する。
